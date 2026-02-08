@@ -1,0 +1,2248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>VOID DRIFTER - Space Pirate Oregon Trail</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #000;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  font-family: monospace;
+}
+canvas {
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+#scanlines {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0,0,0,0.1) 0px,
+    rgba(0,0,0,0.1) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  pointer-events: none;
+  z-index: 20;
+}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="scanlines"></div>
+<script>
+// ============================================================
+// VOID DRIFTER - A Space Pirate Oregon Trail
+// Survive the endless void. No destination. No end.
+// ============================================================
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+// --- CONSTANTS ---
+const W = 800, H = 600;
+let SCALE = 1;
+
+function resize() {
+  SCALE = Math.min(window.innerWidth / W, window.innerHeight / H);
+  canvas.width = W;
+  canvas.height = H;
+  canvas.style.width = (W * SCALE) + 'px';
+  canvas.style.height = (H * SCALE) + 'px';
+}
+window.addEventListener('resize', resize);
+resize();
+
+// --- COLOR PALETTE ---
+const PAL = {
+  bg: '#0a0a1a',
+  panel: '#111827',
+  panelBorder: '#1e3a5f',
+  panelLight: '#1a2744',
+  text: '#c8d6e5',
+  textDim: '#5a6a7a',
+  textBright: '#ffffff',
+  accent: '#00ffcc',
+  accentDim: '#007766',
+  warning: '#ff6644',
+  danger: '#ff2244',
+  gold: '#ffcc00',
+  goldDim: '#aa8800',
+  fuel: '#44aaff',
+  food: '#66cc44',
+  hull: '#888899',
+  morale: '#cc66ff',
+  oxygen: '#44dddd',
+  ammo: '#ff8844',
+  parts: '#aaaacc',
+  reputation: '#ffaa00',
+  credits: '#ffcc00',
+  space: '#060612',
+  starA: '#ffffff',
+  starB: '#aaccff',
+  starC: '#ffccaa',
+  pirate: '#ff4466',
+  friendly: '#44ff88',
+  neutral: '#8888aa',
+};
+
+// --- INPUT ---
+const mouse = { x: 0, y: 0, clicked: false, down: false };
+const keys = {};
+
+canvas.addEventListener('mousemove', e => {
+  const r = canvas.getBoundingClientRect();
+  mouse.x = (e.clientX - r.left) / SCALE;
+  mouse.y = (e.clientY - r.top) / SCALE;
+});
+canvas.addEventListener('mousedown', e => { mouse.down = true; });
+canvas.addEventListener('mouseup', e => { mouse.down = false; });
+canvas.addEventListener('click', e => {
+  const r = canvas.getBoundingClientRect();
+  mouse.x = (e.clientX - r.left) / SCALE;
+  mouse.y = (e.clientY - r.top) / SCALE;
+  mouse.clicked = true;
+});
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  const r = canvas.getBoundingClientRect();
+  mouse.x = (t.clientX - r.left) / SCALE;
+  mouse.y = (t.clientY - r.top) / SCALE;
+  mouse.clicked = true;
+  mouse.down = true;
+}, { passive: false });
+canvas.addEventListener('touchend', e => {
+  mouse.down = false;
+}, { passive: false });
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  const r = canvas.getBoundingClientRect();
+  mouse.x = (t.clientX - r.left) / SCALE;
+  mouse.y = (t.clientY - r.top) / SCALE;
+}, { passive: false });
+
+window.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  // Keyboard shortcuts for buttons: 1-4 selects button by index, Enter selects first
+  if (gameState !== STATE.COMBAT) {
+    const num = parseInt(e.key);
+    if (num >= 1 && num <= buttons.length) {
+      Audio.play('click');
+      buttons[num - 1].action();
+      return;
+    }
+    if (e.code === 'Enter' && buttons.length > 0) {
+      Audio.play('click');
+      buttons[0].action();
+    }
+  }
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+
+// --- AUDIO ENGINE ---
+const Audio = {
+  ctx: null,
+  master: null,
+  initialized: false,
+
+  init() {
+    if (this.initialized) return;
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    this.master = this.ctx.createGain();
+    this.master.gain.value = 0.3;
+    this.master.connect(this.ctx.destination);
+    this.initialized = true;
+  },
+
+  play(type) {
+    if (!this.initialized) return;
+    const t = this.ctx.currentTime;
+    switch(type) {
+      case 'click': {
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(800, t);
+        o.frequency.exponentialRampToValueAtTime(1200, t + 0.05);
+        g.gain.setValueAtTime(0.15, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+        o.connect(g); g.connect(this.master);
+        o.start(t); o.stop(t + 0.1);
+        break;
+      }
+      case 'hover': {
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = 'sine';
+        o.frequency.value = 600;
+        g.gain.setValueAtTime(0.05, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+        o.connect(g); g.connect(this.master);
+        o.start(t); o.stop(t + 0.06);
+        break;
+      }
+      case 'good': {
+        [0, 0.08, 0.16].forEach((d, i) => {
+          const o = this.ctx.createOscillator();
+          const g = this.ctx.createGain();
+          o.type = 'sine';
+          o.frequency.value = 400 + i * 200;
+          g.gain.setValueAtTime(0.12, t + d);
+          g.gain.exponentialRampToValueAtTime(0.001, t + d + 0.1);
+          o.connect(g); g.connect(this.master);
+          o.start(t + d); o.stop(t + d + 0.12);
+        });
+        break;
+      }
+      case 'bad': {
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = 'sawtooth';
+        o.frequency.setValueAtTime(200, t);
+        o.frequency.exponentialRampToValueAtTime(80, t + 0.3);
+        g.gain.setValueAtTime(0.2, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+        o.connect(g); g.connect(this.master);
+        o.start(t); o.stop(t + 0.35);
+        break;
+      }
+      case 'alarm': {
+        for (let i = 0; i < 3; i++) {
+          const o = this.ctx.createOscillator();
+          const g = this.ctx.createGain();
+          o.type = 'square';
+          o.frequency.setValueAtTime(800, t + i * 0.15);
+          o.frequency.setValueAtTime(600, t + i * 0.15 + 0.07);
+          g.gain.setValueAtTime(0.1, t + i * 0.15);
+          g.gain.exponentialRampToValueAtTime(0.001, t + i * 0.15 + 0.12);
+          o.connect(g); g.connect(this.master);
+          o.start(t + i * 0.15); o.stop(t + i * 0.15 + 0.14);
+        }
+        break;
+      }
+      case 'travel': {
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = 'triangle';
+        o.frequency.setValueAtTime(100, t);
+        o.frequency.linearRampToValueAtTime(200, t + 1);
+        g.gain.setValueAtTime(0.08, t);
+        g.gain.setValueAtTime(0.08, t + 0.8);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
+        o.connect(g); g.connect(this.master);
+        o.start(t); o.stop(t + 1.3);
+        break;
+      }
+      case 'shoot': {
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = 'square';
+        o.frequency.setValueAtTime(900, t);
+        o.frequency.exponentialRampToValueAtTime(200, t + 0.08);
+        g.gain.setValueAtTime(0.15, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+        o.connect(g); g.connect(this.master);
+        o.start(t); o.stop(t + 0.1);
+        break;
+      }
+      case 'explode': {
+        const sz = this.ctx.sampleRate * 0.3;
+        const buf = this.ctx.createBuffer(1, sz, this.ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < sz; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / sz);
+        const s = this.ctx.createBufferSource();
+        s.buffer = buf;
+        const g = this.ctx.createGain();
+        const f = this.ctx.createBiquadFilter();
+        f.type = 'lowpass';
+        f.frequency.setValueAtTime(2000, t);
+        f.frequency.exponentialRampToValueAtTime(100, t + 0.3);
+        g.gain.setValueAtTime(0.3, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+        s.connect(f); f.connect(g); g.connect(this.master);
+        s.start(t);
+        break;
+      }
+      case 'death': {
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = 'sawtooth';
+        o.frequency.setValueAtTime(400, t);
+        o.frequency.exponentialRampToValueAtTime(30, t + 1.5);
+        g.gain.setValueAtTime(0.25, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 1.5);
+        o.connect(g); g.connect(this.master);
+        o.start(t); o.stop(t + 1.6);
+        break;
+      }
+    }
+  },
+
+  ambience(intensity) {
+    if (!this.initialized) return;
+    // Ambient drone - called periodically
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator();
+    const o2 = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    const f = this.ctx.createBiquadFilter();
+    o.type = 'sine';
+    o2.type = 'sine';
+    o.frequency.value = 55 + intensity * 20;
+    o2.frequency.value = 55.5 + intensity * 20;
+    f.type = 'lowpass';
+    f.frequency.value = 200;
+    g.gain.setValueAtTime(0.04, t);
+    g.gain.setValueAtTime(0.04, t + 3);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 4);
+    o.connect(f); o2.connect(f); f.connect(g); g.connect(this.master);
+    o.start(t); o2.start(t);
+    o.stop(t + 4.1); o2.stop(t + 4.1);
+  }
+};
+
+// --- STAR BACKGROUND ---
+const bgStars = [];
+for (let i = 0; i < 200; i++) {
+  bgStars.push({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    size: Math.random() < 0.1 ? 2 : 1,
+    brightness: Math.random() * 0.6 + 0.2,
+    color: [PAL.starA, PAL.starB, PAL.starC][Math.floor(Math.random() * 3)],
+    twinkleSpeed: Math.random() * 3 + 1,
+  });
+}
+
+function drawStarfield(scroll) {
+  bgStars.forEach(s => {
+    const y = (s.y + (scroll || 0) * s.size * 0.1) % H;
+    const tw = Math.sin(gameTime * s.twinkleSpeed + s.x) * 0.2;
+    ctx.globalAlpha = Math.max(0.05, s.brightness + tw);
+    ctx.fillStyle = s.color;
+    ctx.fillRect(s.x, y, s.size, s.size);
+  });
+  ctx.globalAlpha = 1;
+}
+
+// --- PIXEL ART SPRITE SYSTEM ---
+// Sprites defined as arrays of [color, x, y, w, h] rects
+function drawSprite(sprite, x, y, scale) {
+  const s = scale || 1;
+  sprite.forEach(([color, sx, sy, sw, sh]) => {
+    ctx.fillStyle = color;
+    ctx.fillRect(x + sx * s, y + sy * s, (sw || 1) * s, (sh || 1) * s);
+  });
+}
+
+// Player ship sprite (32x24 pixel art, drawn at 2x)
+const SHIP_SPRITE = [
+  // Hull body
+  ['#556677', 8, 8, 16, 8],
+  ['#667788', 10, 6, 12, 12],
+  ['#778899', 12, 4, 8, 16],
+  // Nose
+  ['#8899aa', 24, 9, 6, 6],
+  ['#99aabb', 28, 10, 4, 4],
+  // Wings
+  ['#445566', 6, 2, 12, 3],
+  ['#445566', 6, 19, 12, 3],
+  ['#334455', 4, 0, 6, 3],
+  ['#334455', 4, 21, 6, 3],
+  // Engine
+  ['#ff6644', 2, 9, 4, 6],
+  ['#ffaa44', 0, 10, 3, 4],
+  ['#ffcc88', 4, 10, 2, 4],
+  // Cockpit
+  ['#44ddff', 22, 10, 4, 4],
+  ['#88eeff', 23, 11, 2, 2],
+  // Details
+  ['#3a4a5a', 14, 8, 2, 8],
+  ['#aabbcc', 18, 10, 2, 4],
+];
+
+// Station sprite
+const STATION_SPRITE = [
+  ['#334455', 8, 0, 16, 32],
+  ['#445566', 4, 4, 24, 24],
+  ['#556677', 8, 8, 16, 16],
+  ['#00ffcc', 12, 12, 8, 8],
+  ['#44dddd', 13, 13, 6, 6],
+  ['#667788', 0, 12, 4, 8],
+  ['#667788', 28, 12, 4, 8],
+  ['#445566', 6, 2, 2, 28],
+  ['#445566', 24, 2, 2, 28],
+  ['#ffcc00', 14, 14, 4, 4],
+  ['#ff6644', 2, 14, 2, 4],
+  ['#ff6644', 28, 14, 2, 4],
+];
+
+// Enemy ship sprites
+const ENEMY_SPRITES = {
+  raider: [
+    ['#992233', 4, 8, 20, 8],
+    ['#aa3344', 8, 4, 16, 16],
+    ['#bb4455', 12, 6, 8, 12],
+    ['#ff4466', 24, 10, 6, 4],
+    ['#ff6644', 0, 10, 4, 4],
+    ['#ffaa00', 1, 11, 2, 2],
+    ['#cc2244', 10, 2, 4, 4],
+    ['#cc2244', 10, 18, 4, 4],
+  ],
+  cruiser: [
+    ['#553344', 2, 6, 28, 12],
+    ['#664455', 6, 4, 20, 16],
+    ['#775566', 10, 2, 12, 20],
+    ['#ff2244', 28, 8, 4, 8],
+    ['#ff4466', 30, 9, 2, 6],
+    ['#ff6644', 0, 9, 3, 6],
+    ['#ffaa44', 1, 10, 2, 4],
+    ['#aa3355', 8, 0, 6, 4],
+    ['#aa3355', 8, 20, 6, 4],
+    ['#44ddff', 24, 10, 4, 4],
+  ],
+  boss: [
+    ['#441122', 0, 4, 32, 24],
+    ['#552233', 4, 2, 24, 28],
+    ['#663344', 8, 0, 16, 32],
+    ['#774455', 12, 4, 8, 24],
+    ['#ff2244', 28, 12, 6, 8],
+    ['#ff4466', 32, 13, 4, 6],
+    ['#ff6644', 0, 8, 4, 6],
+    ['#ff6644', 0, 18, 4, 6],
+    ['#ffaa00', 1, 9, 2, 4],
+    ['#ffaa00', 1, 19, 2, 4],
+    ['#44ddff', 26, 14, 4, 4],
+    ['#88eeff', 27, 15, 2, 2],
+    ['#aa3355', 6, 0, 4, 4],
+    ['#aa3355', 6, 28, 4, 4],
+    ['#aa3355', 20, 0, 4, 4],
+    ['#aa3355', 20, 28, 4, 4],
+  ],
+};
+
+// Planet drawing
+function drawPlanet(x, y, radius, color1, color2, hasRing) {
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath();
+  ctx.arc(x + 2, y + 2, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Body
+  const grad = ctx.createRadialGradient(x - radius * 0.3, y - radius * 0.3, 0, x, y, radius);
+  grad.addColorStop(0, color1);
+  grad.addColorStop(1, color2);
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Surface details
+  ctx.globalAlpha = 0.15;
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(x + radius * 0.2, y - radius * 0.1, radius * 0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(x - radius * 0.3, y + radius * 0.3, radius * 0.15, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // Atmosphere
+  ctx.strokeStyle = color1;
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = 0.3;
+  ctx.beginPath();
+  ctx.arc(x, y, radius + 2, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  if (hasRing) {
+    ctx.strokeStyle = color1;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.4;
+    ctx.beginPath();
+    ctx.ellipse(x, y, radius * 1.8, radius * 0.3, -0.2, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+}
+
+// --- UI DRAWING HELPERS ---
+function drawPanel(x, y, w, h, highlight) {
+  ctx.fillStyle = PAL.panel;
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = highlight || PAL.panelBorder;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  // Corner accents
+  const c = highlight || PAL.accent;
+  ctx.fillStyle = c;
+  ctx.fillRect(x, y, 3, 1);
+  ctx.fillRect(x, y, 1, 3);
+  ctx.fillRect(x + w - 3, y, 3, 1);
+  ctx.fillRect(x + w - 1, y, 1, 3);
+  ctx.fillRect(x, y + h - 1, 3, 1);
+  ctx.fillRect(x, y + h - 3, 1, 3);
+  ctx.fillRect(x + w - 3, y + h - 1, 3, 1);
+  ctx.fillRect(x + w - 1, y + h - 3, 1, 3);
+}
+
+function drawBar(x, y, w, h, value, max, color, label) {
+  const pct = Math.max(0, Math.min(1, value / max));
+  ctx.fillStyle = '#0a0a14';
+  ctx.fillRect(x, y, w, h);
+  const barColor = pct < 0.2 ? PAL.danger : (pct < 0.4 ? PAL.warning : color);
+  ctx.fillStyle = barColor;
+  ctx.fillRect(x, y, w * pct, h);
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, w, h);
+  if (label) {
+    ctx.fillStyle = PAL.text;
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(label, x, y - 2);
+    ctx.textAlign = 'right';
+    ctx.fillText(Math.floor(value) + '/' + max, x + w, y - 2);
+  }
+}
+
+// Button system
+const buttons = [];
+function clearButtons() { buttons.length = 0; }
+
+function addButton(x, y, w, h, text, action, style) {
+  buttons.push({ x, y, w, h, text, action, style: style || 'normal', hovered: false });
+}
+
+function drawButtons() {
+  buttons.forEach((b, idx) => {
+    b.hovered = mouse.x >= b.x && mouse.x <= b.x + b.w &&
+                mouse.y >= b.y && mouse.y <= b.y + b.h;
+
+    if (b.style === 'danger') {
+      ctx.fillStyle = b.hovered ? '#441122' : '#220a0a';
+      ctx.strokeStyle = b.hovered ? PAL.danger : '#661122';
+    } else if (b.style === 'good') {
+      ctx.fillStyle = b.hovered ? '#112233' : '#0a1520';
+      ctx.strokeStyle = b.hovered ? PAL.accent : PAL.accentDim;
+    } else {
+      ctx.fillStyle = b.hovered ? PAL.panelLight : PAL.panel;
+      ctx.strokeStyle = b.hovered ? PAL.accent : PAL.panelBorder;
+    }
+
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.lineWidth = b.hovered ? 2 : 1;
+    ctx.strokeRect(b.x, b.y, b.w, b.h);
+
+    ctx.fillStyle = b.hovered ? PAL.textBright : PAL.text;
+    ctx.font = b.hovered ? 'bold 12px monospace' : '12px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(b.text, b.x + b.w / 2, b.y + b.h / 2);
+    ctx.textBaseline = 'alphabetic';
+
+    // Key hint
+    if (idx < 9 && gameState !== STATE.COMBAT) {
+      ctx.fillStyle = PAL.textDim;
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText('[' + (idx + 1) + ']', b.x + 4, b.y + b.h / 2 + 3);
+    }
+  });
+}
+
+function checkButtons() {
+  if (!mouse.clicked) return;
+  for (const b of buttons) {
+    if (mouse.x >= b.x && mouse.x <= b.x + b.w &&
+        mouse.y >= b.y && mouse.y <= b.y + b.h) {
+      Audio.play('click');
+      b.action();
+      mouse.clicked = false;
+      return;
+    }
+  }
+}
+
+// Text wrapping
+function wrapText(text, maxWidth) {
+  const words = text.split(' ');
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    const test = line ? line + ' ' + word : word;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+// --- GAME STATE ---
+const STATE = {
+  MENU: 'menu',
+  TRAVEL: 'travel',
+  EVENT: 'event',
+  STATION: 'station',
+  COMBAT: 'combat',
+  GAMEOVER: 'gameover',
+  LOG: 'log',
+};
+
+let gameState = STATE.MENU;
+let gameTime = 0;
+let lastAmbienceTime = 0;
+
+// --- RESOURCES ---
+const res = {
+  fuel: 80,
+  food: 80,
+  hull: 100,
+  morale: 70,
+  credits: 200,
+  ammo: 30,
+  parts: 10,
+  reputation: 50, // 0=lawful, 100=infamous pirate
+  oxygen: 100,
+  crew: 8,
+  maxCrew: 15,
+};
+
+const RES_MAX = {
+  fuel: 100, food: 100, hull: 100, morale: 100,
+  oxygen: 100, ammo: 50, parts: 20, reputation: 100,
+};
+
+// --- SHIP UPGRADES ---
+const ship = {
+  hullMax: 100,
+  fuelEfficiency: 1.0,  // lower = less fuel used
+  weaponPower: 1,
+  shieldStrength: 0,
+  cargoCapacity: 1.0,
+};
+
+// --- JOURNEY STATE ---
+let distance = 0;       // total parsecs traveled
+let sector = 1;         // current sector (difficulty tier)
+let leg = 0;            // current travel leg number
+let piratesDefeated = 0;
+let shipsRaided = 0;
+let crewLost = 0;
+let creditsEarned = 0;
+
+// --- LOG ---
+const log = [];
+function addLog(msg, type) {
+  log.unshift({ msg, type: type || 'info', time: distance });
+  if (log.length > 50) log.pop();
+}
+
+// --- TRAVEL ---
+let travelProgress = 0;
+let travelDistance = 0;
+let travelDestination = null;
+let travelEvents = [];
+let travelEventTriggered = false;
+let destinations = [];
+
+// --- EVENT ---
+let currentEvent = null;
+let eventResult = null;
+
+// --- STATION ---
+let stationData = null;
+
+// --- COMBAT ---
+let combat = null;
+
+// --- DEATH CAUSE ---
+let deathCause = '';
+
+// --- HIGH SCORES ---
+let highScores = [];
+try {
+  const hs = JSON.parse(localStorage.getItem('voidDrifterScores'));
+  if (Array.isArray(hs)) highScores = hs;
+} catch(e) {}
+
+function saveScore() {
+  highScores.push({ distance, sector, piratesDefeated, credits: creditsEarned, date: Date.now() });
+  highScores.sort((a, b) => b.distance - a.distance);
+  highScores = highScores.slice(0, 10);
+  localStorage.setItem('voidDrifterScores', JSON.stringify(highScores));
+}
+
+// --- DIFFICULTY SCALING ---
+function difficulty() {
+  return 1 + (sector - 1) * 0.15 + distance * 0.001;
+}
+
+// --- DESTINATION GENERATION ---
+const LOCATION_NAMES_A = ['Nova','Dark','Crimson','Iron','Dead','Storm','Ghost','Black','Gold','Neon','Rust','Frost','Ash','Venom','Dread'];
+const LOCATION_NAMES_B = ['Haven','Port','Gate','Reach','Drift','Station','Outpost','Crossing','Nebula','Rift','Dock','Point','Hollow','Spire','Forge'];
+const PLANET_COLORS = [
+  ['#4488ff','#223366'], ['#ff6644','#662211'], ['#44cc88','#115533'],
+  ['#ccaa44','#554411'], ['#cc44ff','#551166'], ['#44dddd','#115555'],
+  ['#ff8844','#663311'], ['#8888ff','#333366'], ['#dd6688','#552233'],
+];
+
+function randomName() {
+  return LOCATION_NAMES_A[Math.floor(Math.random() * LOCATION_NAMES_A.length)] + ' ' +
+         LOCATION_NAMES_B[Math.floor(Math.random() * LOCATION_NAMES_B.length)];
+}
+
+function generateDestinations() {
+  destinations = [];
+  const count = 2 + (Math.random() < 0.3 ? 1 : 0);
+  for (let i = 0; i < count; i++) {
+    const hasStation = Math.random() < 0.4;
+    const dist = 8 + Math.floor(Math.random() * 12) + sector * 2;
+    const fuelCost = Math.ceil(dist * ship.fuelEfficiency * (0.8 + Math.random() * 0.4));
+    const dangerLevel = Math.min(5, Math.floor(Math.random() * 3) + Math.floor(sector / 3));
+    const colors = PLANET_COLORS[Math.floor(Math.random() * PLANET_COLORS.length)];
+    destinations.push({
+      name: randomName(),
+      distance: dist,
+      fuelCost,
+      hasStation,
+      dangerLevel,
+      planetColor1: colors[0],
+      planetColor2: colors[1],
+      hasRing: Math.random() < 0.25,
+      planetRadius: 15 + Math.floor(Math.random() * 20),
+      eventChance: 0.35 + dangerLevel * 0.08,
+    });
+  }
+}
+
+// --- EVENT SYSTEM ---
+const EVENTS = [
+  // --- PIRATE/COMBAT ---
+  {
+    id: 'pirate_ambush',
+    title: 'PIRATE AMBUSH',
+    text: 'A raider drops out of warp directly ahead, weapons hot. They\'re demanding you surrender your cargo.',
+    icon: 'pirate',
+    minSector: 1,
+    weight: 3,
+    choices: [
+      { text: 'Fight them', action: 'combat', combatType: 'raider' },
+      { text: 'Surrender cargo (-30 credits)', action: 'lose', effects: { credits: -30 }, successText: 'You hand over supplies. The pirates sneer and warp away.' },
+      { text: 'Try to flee (uses fuel)', action: 'check', stat: 'fuel', threshold: 15, cost: { fuel: -12 },
+        successText: 'You burn hard and escape into an asteroid field.',
+        failText: 'Not enough fuel to escape! They open fire.', failEffects: { hull: -20, credits: -20 } },
+    ],
+  },
+  {
+    id: 'pirate_fleet',
+    title: 'PIRATE FLEET',
+    text: 'Multiple hostile signatures detected. A small fleet is moving to intercept. This looks like a serious fight.',
+    icon: 'pirate',
+    minSector: 3,
+    weight: 1,
+    choices: [
+      { text: 'Engage the fleet', action: 'combat', combatType: 'cruiser' },
+      { text: 'Bribe them (-80 credits)', action: 'check', stat: 'credits', threshold: 80, cost: { credits: -80 },
+        successText: 'Credits change hands. The fleet commander nods and the ships stand down.',
+        failText: 'You don\'t have enough to bribe them. They attack!', failAction: 'combat', failCombatType: 'cruiser' },
+      { text: 'Flee at full burn', action: 'check', stat: 'fuel', threshold: 20, cost: { fuel: -18 },
+        successText: 'Your engines scream as you barely outrun them.',
+        failText: 'They\'re faster. Weapons impact rocks the hull.', failEffects: { hull: -30 } },
+    ],
+  },
+  // --- EXPLORATION ---
+  {
+    id: 'derelict',
+    title: 'DERELICT VESSEL',
+    text: 'Sensors detect a drifting wreck. The hull is breached but internal compartments may still hold cargo. Could be a trap.',
+    icon: 'derelict',
+    minSector: 1,
+    weight: 3,
+    choices: [
+      { text: 'Send crew to salvage', action: 'random', good: 0.6,
+        successText: 'Your crew returns with useful salvage!', successEffects: { parts: 4, credits: 40, ammo: 5 },
+        failText: 'It was rigged. An explosion injures crew.', failEffects: { hull: -10, crew: -1 } },
+      { text: 'Scan and move on', action: 'gain', effects: {}, successText: 'You log the coordinates and continue on your way. Nothing ventured, nothing gained.' },
+    ],
+  },
+  {
+    id: 'abandoned_station',
+    title: 'ABANDONED STATION',
+    text: 'A decommissioned relay station floats in the void. Life support is offline but the storage bays might still have supplies.',
+    icon: 'station',
+    minSector: 1,
+    weight: 2,
+    choices: [
+      { text: 'Dock and search', action: 'random', good: 0.7,
+        successText: 'The bays are stocked! You load up fuel and food.', successEffects: { fuel: 20, food: 15 },
+        failText: 'The structure is unstable. A bulkhead collapses.', failEffects: { hull: -12, crew: -1 } },
+      { text: 'Investigate carefully (costs oxygen)', action: 'check', stat: 'oxygen', threshold: 10, cost: { oxygen: -8 },
+        successText: 'Careful EVA ops pay off. You find hidden cargo.', successEffects: { credits: 60, parts: 3 },
+        failText: 'Not enough oxygen for EVA operations.' },
+      { text: 'Keep moving', action: 'gain', effects: {}, successText: 'You leave the station behind. Better safe than sorry.' },
+    ],
+  },
+  // --- HAZARDS ---
+  {
+    id: 'ion_storm',
+    title: 'ION STORM',
+    text: 'A massive electromagnetic storm sweeps across your path. It will damage systems unless you take action.',
+    icon: 'storm',
+    minSector: 1,
+    weight: 3,
+    choices: [
+      { text: 'Ride through it', action: 'lose', effects: { hull: -15, morale: -10 }, successText: 'The ship groans as the storm batters your hull. Systems flicker but hold.' },
+      { text: 'Detour around (uses fuel)', action: 'check', stat: 'fuel', threshold: 10, cost: { fuel: -10 },
+        successText: 'You chart a course around the worst of it.',
+        failText: 'Not enough fuel! You\'re pulled into the storm.', failEffects: { hull: -20, morale: -15 } },
+      { text: 'Use parts to shield systems', action: 'check', stat: 'parts', threshold: 3, cost: { parts: -3 },
+        successText: 'Your crew reinforces critical systems. Minimal damage.',
+        failText: 'Not enough spare parts! The storm fries your circuits.', failEffects: { hull: -18 } },
+    ],
+  },
+  {
+    id: 'asteroid_field',
+    title: 'ASTEROID FIELD',
+    text: 'You\'ve entered a dense asteroid field. Navigating through requires careful piloting.',
+    icon: 'hazard',
+    minSector: 1,
+    weight: 2,
+    choices: [
+      { text: 'Navigate carefully', action: 'random', good: 0.7,
+        successText: 'Excellent piloting! You find mineral deposits along the way.', successEffects: { credits: 25, parts: 2 },
+        failText: 'An asteroid clips your hull.', failEffects: { hull: -12 } },
+      { text: 'Go around (uses fuel)', action: 'lose', effects: { fuel: -8 }, successText: 'You take the long way around. Safe but costly.' },
+      { text: 'Blast through (uses ammo)', action: 'check', stat: 'ammo', threshold: 5, cost: { ammo: -5 },
+        successText: 'Your guns clear a path! Debris yields some salvage.', successEffects: { credits: 15 },
+        failText: 'Not enough ammo to clear a safe path!', failEffects: { hull: -15 } },
+    ],
+  },
+  {
+    id: 'radiation_zone',
+    title: 'RADIATION ZONE',
+    text: 'High radiation levels detected ahead. Prolonged exposure will sicken the crew.',
+    icon: 'hazard',
+    minSector: 2,
+    weight: 2,
+    choices: [
+      { text: 'Push through quickly', action: 'lose', effects: { morale: -15, oxygen: -10, crew: -1 },
+        successText: 'You rush through. One crew member succumbs to radiation sickness.' },
+      { text: 'Detour around (uses fuel)', action: 'check', stat: 'fuel', threshold: 12, cost: { fuel: -12 },
+        successText: 'A wide detour keeps the crew safe.',
+        failText: 'Can\'t afford the fuel! You have to go through.', failEffects: { morale: -15, oxygen: -10 } },
+    ],
+  },
+  // --- ENCOUNTERS ---
+  {
+    id: 'merchant',
+    title: 'MERCHANT VESSEL',
+    text: 'A trading vessel hails you. They have supplies for sale at reasonable prices.',
+    icon: 'friendly',
+    minSector: 1,
+    weight: 3,
+    choices: [
+      { text: 'Trade: Buy fuel (20 cr)', action: 'check', stat: 'credits', threshold: 20, cost: { credits: -20, fuel: 25 },
+        successText: 'Good deal. Your fuel tanks get a welcome top-up.',
+        failText: 'Not enough credits for fuel.' },
+      { text: 'Trade: Buy food (15 cr)', action: 'check', stat: 'credits', threshold: 15, cost: { credits: -15, food: 20 },
+        successText: 'Fresh provisions! The crew is pleased.',
+        failText: 'You can\'t afford it.' },
+      { text: 'Rob them (pirate option)', action: 'random', good: 0.5,
+        successText: 'You overpower the merchant and seize their cargo!',
+        successEffects: { credits: 50, fuel: 15, food: 10, reputation: 10 },
+        failText: 'They were armed! They fight back and escape.',
+        failEffects: { hull: -10, reputation: 5 } },
+      { text: 'Wave and move on', action: 'gain', effects: {}, successText: 'You exchange pleasantries and continue on your way.' },
+    ],
+  },
+  {
+    id: 'distress_signal',
+    title: 'DISTRESS SIGNAL',
+    text: 'A faint SOS signal echoes on emergency frequencies. Someone is in trouble out there.',
+    icon: 'friendly',
+    minSector: 1,
+    weight: 3,
+    choices: [
+      { text: 'Respond and help', action: 'random', good: 0.65,
+        successText: 'You rescue survivors! They\'re grateful and share their supplies.',
+        successEffects: { crew: 2, morale: 15, reputation: -5, credits: 30 },
+        failText: 'It was a pirate trap! Ambush!',
+        failEffects: { hull: -15, ammo: -5 } },
+      { text: 'Ignore it', action: 'lose', effects: { morale: -8 },
+        successText: 'You fly on. The crew grows uneasy, wondering if you\'d leave them behind too.' },
+    ],
+  },
+  {
+    id: 'alien_probe',
+    title: 'ALIEN PROBE',
+    text: 'An unknown object of clearly non-human origin drifts nearby. It emits strange signals.',
+    icon: 'alien',
+    minSector: 2,
+    weight: 2,
+    choices: [
+      { text: 'Capture and study it', action: 'random', good: 0.5,
+        successText: 'Alien tech! Your engineers adapt it to improve the ship.',
+        successEffects: { parts: 5, credits: 80 },
+        failText: 'The probe emits a pulse that damages your systems!',
+        failEffects: { hull: -15, oxygen: -15 } },
+      { text: 'Destroy it (uses ammo)', action: 'check', stat: 'ammo', threshold: 3, cost: { ammo: -3 },
+        successText: 'The wreckage yields exotic materials.', successEffects: { credits: 40, parts: 2 },
+        failText: 'Not enough ammo to destroy it.' },
+      { text: 'Leave it alone', action: 'gain', effects: {}, successText: 'Some mysteries are better left unsolved.' },
+    ],
+  },
+  // --- CREW EVENTS ---
+  {
+    id: 'crew_conflict',
+    title: 'CREW CONFLICT',
+    text: 'A fight has broken out among the crew. Tensions are high and sides are forming.',
+    icon: 'crew',
+    minSector: 1,
+    weight: 2,
+    choices: [
+      { text: 'Mediate fairly', action: 'random', good: 0.7,
+        successText: 'Your fair judgment earns respect. Morale improves.',
+        successEffects: { morale: 15 },
+        failText: 'Both sides reject your ruling. Morale drops further.',
+        failEffects: { morale: -10 } },
+      { text: 'Discipline harshly', action: 'lose', effects: { morale: -10, reputation: 5 },
+        successText: 'Order is restored through fear. The crew falls in line, for now.' },
+      { text: 'Space the troublemaker', action: 'lose', effects: { crew: -1, morale: -5, reputation: 8 },
+        successText: 'A harsh lesson. No one will cause trouble again soon.' },
+    ],
+  },
+  {
+    id: 'sickness',
+    title: 'SPACE PLAGUE',
+    text: 'A mysterious illness sweeps through the ship. Crew members are falling ill.',
+    icon: 'crew',
+    minSector: 2,
+    weight: 2,
+    choices: [
+      { text: 'Quarantine and treat', action: 'check', stat: 'food', threshold: 15, cost: { food: -15 },
+        successText: 'With proper care and nutrition, the crew recovers.',
+        failText: 'Not enough food to sustain the sick. Some don\'t make it.', failEffects: { crew: -2, morale: -15 } },
+      { text: 'Push through it', action: 'lose', effects: { crew: -1, morale: -20, oxygen: -5 },
+        successText: 'The illness runs its course. You lose one but the rest pull through.' },
+    ],
+  },
+  {
+    id: 'stowaway',
+    title: 'STOWAWAY FOUND',
+    text: 'Your crew discovers someone hiding in the cargo bay. They claim to be a refugee.',
+    icon: 'crew',
+    minSector: 1,
+    weight: 2,
+    choices: [
+      { text: 'Welcome them aboard', action: 'random', good: 0.7,
+        successText: 'They turn out to be a skilled engineer! A welcome addition.',
+        successEffects: { crew: 1, morale: 5, parts: 2 },
+        failText: 'They were a spy! They sabotage systems before being caught.',
+        failEffects: { hull: -8, fuel: -10 } },
+      { text: 'Drop them at next port', action: 'gain', effects: { morale: 5 },
+        successText: 'The crew appreciates your mercy. They\'ll be fine at the next station.' },
+      { text: 'Put them to work', action: 'gain', effects: { crew: 1 },
+        successText: 'Another pair of hands. They don\'t complain.' },
+    ],
+  },
+  // --- LUCKY EVENTS ---
+  {
+    id: 'supply_cache',
+    title: 'SUPPLY CACHE',
+    text: 'You stumble upon a hidden cache of supplies, probably left by smugglers.',
+    icon: 'good',
+    minSector: 1,
+    weight: 2,
+    choices: [
+      { text: 'Take everything', action: 'gain',
+        effects: { fuel: 15, food: 10, ammo: 8, credits: 30, reputation: 3 },
+        successText: 'Finders keepers! Your cargo hold fills up nicely.' },
+      { text: 'Take only essentials', action: 'gain',
+        effects: { fuel: 10, food: 10 },
+        successText: 'You take what you need and leave the rest.' },
+    ],
+  },
+  {
+    id: 'salvage_field',
+    title: 'DEBRIS FIELD',
+    text: 'The aftermath of a recent battle. Wreckage and cargo containers drift among the stars.',
+    icon: 'good',
+    minSector: 1,
+    weight: 2,
+    choices: [
+      { text: 'Salvage thoroughly', action: 'random', good: 0.75,
+        successText: 'Excellent haul! Parts, ammo, and valuables.',
+        successEffects: { parts: 5, ammo: 8, credits: 45 },
+        failText: 'You trigger a still-armed warhead!',
+        failEffects: { hull: -18 } },
+      { text: 'Quick grab and go', action: 'gain',
+        effects: { parts: 2, credits: 15 },
+        successText: 'You grab what you can and get out before anyone else shows up.' },
+    ],
+  },
+  // --- BOUNTY HUNTER (high reputation) ---
+  {
+    id: 'bounty_hunter',
+    title: 'BOUNTY HUNTER',
+    text: 'A heavily armed ship drops out of hyperspace. They\'ve been tracking you. Your pirate reputation precedes you.',
+    icon: 'pirate',
+    minSector: 2,
+    repMin: 60,
+    weight: 2,
+    choices: [
+      { text: 'Fight the hunter', action: 'combat', combatType: 'cruiser' },
+      { text: 'Pay the bounty (-100 cr)', action: 'check', stat: 'credits', threshold: 100, cost: { credits: -100, reputation: -15 },
+        successText: 'You pay them off. They\'ll be back though.',
+        failText: 'Can\'t afford the bounty! They engage weapons.', failAction: 'combat', failCombatType: 'cruiser' },
+      { text: 'Try to outrun them', action: 'check', stat: 'fuel', threshold: 20, cost: { fuel: -18 },
+        successText: 'You burn everything and barely escape.',
+        failText: 'Your engines can\'t outrun them.', failEffects: { hull: -25 } },
+    ],
+  },
+  // --- MUTINY (low morale) ---
+  {
+    id: 'mutiny',
+    title: 'MUTINY!',
+    text: 'The crew has reached their breaking point. They\'re demanding you step down as captain!',
+    icon: 'crew',
+    minSector: 1,
+    moraleMax: 25,
+    weight: 3,
+    choices: [
+      { text: 'Rally loyal crew', action: 'random', good: 0.4,
+        successText: 'Your loyal supporters quell the uprising. Order restored.',
+        successEffects: { morale: 20 },
+        failText: 'It turns violent. Several crew are lost.',
+        failEffects: { crew: -3, morale: -10, hull: -5 } },
+      { text: 'Bribe them (50 credits)', action: 'check', stat: 'credits', threshold: 50, cost: { credits: -50, morale: 25 },
+        successText: 'Money talks. The crew settles down.',
+        failText: 'Can\'t afford to bribe them!', failEffects: { morale: -10 } },
+      { text: 'Give extra rations', action: 'check', stat: 'food', threshold: 20, cost: { food: -20, morale: 30 },
+        successText: 'Full bellies make for happier crew.',
+        failText: 'Not enough food to share!', failEffects: { morale: -10 } },
+    ],
+  },
+];
+
+function pickEvent() {
+  const eligible = EVENTS.filter(e => {
+    if (e.minSector && sector < e.minSector) return false;
+    if (e.repMin && res.reputation < e.repMin) return false;
+    if (e.moraleMax && res.morale > e.moraleMax) return false;
+    return true;
+  });
+  // Weighted selection
+  const totalWeight = eligible.reduce((s, e) => s + (e.weight || 1), 0);
+  let r = Math.random() * totalWeight;
+  for (const e of eligible) {
+    r -= (e.weight || 1);
+    if (r <= 0) return JSON.parse(JSON.stringify(e)); // deep copy
+  }
+  return JSON.parse(JSON.stringify(eligible[0]));
+}
+
+function applyEffects(effects) {
+  if (!effects) return;
+  for (const [key, val] of Object.entries(effects)) {
+    if (key === 'crew') {
+      res.crew = Math.max(0, Math.min(res.maxCrew, res.crew + val));
+      if (val < 0) crewLost += Math.abs(val);
+    } else if (key in res) {
+      const max = RES_MAX[key] || 99999;
+      res[key] = Math.max(0, Math.min(max, res[key] + val));
+      if (key === 'credits' && val > 0) creditsEarned += val;
+    }
+  }
+}
+
+function resolveChoice(choice) {
+  switch(choice.action) {
+    case 'gain':
+    case 'lose':
+      applyEffects(choice.effects || choice.cost);
+      eventResult = { text: choice.successText, good: choice.action === 'gain' };
+      if (choice.successEffects) applyEffects(choice.successEffects);
+      if (choice.action === 'gain') Audio.play('good');
+      else Audio.play('bad');
+      break;
+
+    case 'check':
+      if (res[choice.stat] >= choice.threshold) {
+        applyEffects(choice.cost);
+        if (choice.successEffects) applyEffects(choice.successEffects);
+        eventResult = { text: choice.successText, good: true };
+        Audio.play('good');
+      } else {
+        eventResult = { text: choice.failText, good: false };
+        if (choice.failEffects) applyEffects(choice.failEffects);
+        if (choice.failAction === 'combat') {
+          startCombat(choice.failCombatType || 'raider');
+          return;
+        }
+        Audio.play('bad');
+      }
+      break;
+
+    case 'random':
+      if (Math.random() < (choice.good || 0.5)) {
+        if (choice.successEffects) applyEffects(choice.successEffects);
+        eventResult = { text: choice.successText, good: true };
+        Audio.play('good');
+      } else {
+        if (choice.failEffects) applyEffects(choice.failEffects);
+        eventResult = { text: choice.failText, good: false };
+        Audio.play('bad');
+      }
+      break;
+
+    case 'combat':
+      startCombat(choice.combatType || 'raider');
+      return;
+  }
+
+  checkDeath();
+}
+
+// --- COMBAT MINI-GAME ---
+function startCombat(type) {
+  Audio.play('alarm');
+  const diff = difficulty();
+  const configs = {
+    raider: { name: 'PIRATE RAIDER', hp: 20 + sector * 5, fireRate: 1.2 / diff, speed: 80 * diff, reward: 60, sprite: 'raider' },
+    cruiser: { name: 'PIRATE CRUISER', hp: 40 + sector * 8, fireRate: 0.8 / diff, speed: 60 * diff, reward: 120, sprite: 'cruiser' },
+    boss: { name: 'DREADNOUGHT', hp: 80 + sector * 15, fireRate: 0.5 / diff, speed: 50 * diff, reward: 250, sprite: 'boss' },
+  };
+  const cfg = configs[type] || configs.raider;
+
+  combat = {
+    type,
+    playerY: H / 2,
+    playerHP: Math.min(res.hull, 50 + ship.shieldStrength * 10),
+    playerMaxHP: 50 + ship.shieldStrength * 10,
+    enemyX: W - 120,
+    enemyY: H / 2,
+    enemyHP: cfg.hp,
+    enemyMaxHP: cfg.hp,
+    enemyName: cfg.name,
+    enemyFireRate: cfg.fireRate,
+    enemyFireTimer: cfg.fireRate,
+    enemySpeed: cfg.speed,
+    enemyDir: 1,
+    sprite: cfg.sprite,
+    reward: cfg.reward,
+    bullets: [],
+    enemyBullets: [],
+    fireTimer: 0,
+    fireRate: 0.15,
+    timer: 0,
+    result: null,
+    resultTimer: 0,
+    particles: [],
+  };
+  gameState = STATE.COMBAT;
+}
+
+function updateCombat(dt) {
+  if (!combat) return;
+  combat.timer += dt;
+
+  if (combat.result) {
+    combat.resultTimer += dt;
+    return;
+  }
+
+  // Player movement
+  const targetY = mouse.y;
+  combat.playerY += (targetY - combat.playerY) * 8 * dt;
+  combat.playerY = Math.max(60, Math.min(H - 60, combat.playerY));
+
+  // Auto-fire
+  combat.fireTimer -= dt;
+  if (combat.fireTimer <= 0 && res.ammo > 0) {
+    combat.fireTimer = combat.fireRate;
+    res.ammo = Math.max(0, res.ammo - 1);
+    combat.bullets.push({ x: 140, y: combat.playerY, vx: 500, vy: (Math.random() - 0.5) * 30 });
+    Audio.play('shoot');
+  }
+
+  // Enemy movement
+  combat.enemyY += combat.enemyDir * combat.enemySpeed * dt;
+  if (combat.enemyY < 80 || combat.enemyY > H - 80) combat.enemyDir *= -1;
+
+  // Enemy AI - sine wave overlay
+  combat.enemyX = W - 120 + Math.sin(combat.timer * 1.5) * 40;
+
+  // Enemy fire
+  combat.enemyFireTimer -= dt;
+  if (combat.enemyFireTimer <= 0) {
+    combat.enemyFireTimer = combat.enemyFireRate;
+    const ang = Math.atan2(combat.playerY - combat.enemyY, 120 - combat.enemyX);
+    const spd = 200 + sector * 15;
+    combat.enemyBullets.push({ x: combat.enemyX - 20, y: combat.enemyY, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd });
+    // Boss fires extra bullets
+    if (combat.type === 'boss' || combat.type === 'cruiser') {
+      combat.enemyBullets.push({ x: combat.enemyX - 20, y: combat.enemyY - 15, vx: -spd, vy: -40 });
+      combat.enemyBullets.push({ x: combat.enemyX - 20, y: combat.enemyY + 15, vx: -spd, vy: 40 });
+    }
+  }
+
+  // Update bullets
+  combat.bullets.forEach(b => { b.x += b.vx * dt; b.y += b.vy * dt; });
+  combat.enemyBullets.forEach(b => { b.x += b.vx * dt; b.y += b.vy * dt; });
+
+  // Player bullets hit enemy
+  for (let i = combat.bullets.length - 1; i >= 0; i--) {
+    const b = combat.bullets[i];
+    const dx = b.x - combat.enemyX, dy = b.y - combat.enemyY;
+    if (Math.sqrt(dx * dx + dy * dy) < 30) {
+      combat.enemyHP -= ship.weaponPower;
+      combat.bullets.splice(i, 1);
+      // Particles
+      for (let j = 0; j < 3; j++) {
+        combat.particles.push({
+          x: b.x, y: b.y,
+          vx: (Math.random() - 0.5) * 200, vy: (Math.random() - 0.5) * 200,
+          life: 0.3, color: PAL.warning
+        });
+      }
+      continue;
+    }
+    if (b.x > W + 10) combat.bullets.splice(i, 1);
+  }
+
+  // Enemy bullets hit player
+  for (let i = combat.enemyBullets.length - 1; i >= 0; i--) {
+    const b = combat.enemyBullets[i];
+    const dx = b.x - 120, dy = b.y - combat.playerY;
+    if (Math.sqrt(dx * dx + dy * dy) < 20) {
+      combat.playerHP -= 5;
+      combat.enemyBullets.splice(i, 1);
+      for (let j = 0; j < 3; j++) {
+        combat.particles.push({
+          x: 120, y: combat.playerY,
+          vx: (Math.random() - 0.5) * 200, vy: (Math.random() - 0.5) * 200,
+          life: 0.3, color: PAL.fuel
+        });
+      }
+      continue;
+    }
+    if (b.x < -10 || b.y < -10 || b.y > H + 10) combat.enemyBullets.splice(i, 1);
+  }
+
+  // Particles
+  combat.particles.forEach(p => {
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.life -= dt;
+  });
+  combat.particles = combat.particles.filter(p => p.life > 0);
+
+  // Check outcomes
+  if (combat.enemyHP <= 0) {
+    combat.result = 'win';
+    Audio.play('explode');
+    piratesDefeated++;
+    shipsRaided++;
+    const reward = combat.reward;
+    res.credits += reward;
+    creditsEarned += reward;
+    res.reputation += 5;
+    addLog('Defeated ' + combat.enemyName + '! +' + reward + ' credits', 'good');
+    // Big explosion
+    for (let i = 0; i < 20; i++) {
+      combat.particles.push({
+        x: combat.enemyX, y: combat.enemyY,
+        vx: (Math.random() - 0.5) * 400, vy: (Math.random() - 0.5) * 400,
+        life: 0.5 + Math.random() * 0.5,
+        color: [PAL.warning, PAL.danger, PAL.gold, '#fff'][Math.floor(Math.random() * 4)]
+      });
+    }
+  }
+  if (combat.playerHP <= 0) {
+    combat.result = 'lose';
+    Audio.play('bad');
+    res.hull = Math.max(5, res.hull - 25);
+    res.morale -= 10;
+    addLog('Lost battle against ' + combat.enemyName + '. Hull badly damaged.', 'bad');
+  }
+  if (res.ammo <= 0 && combat.bullets.length === 0) {
+    // Out of ammo - auto retreat
+    combat.result = 'retreat';
+    res.hull = Math.max(5, res.hull - 15);
+    addLog('Retreated from ' + combat.enemyName + ' - out of ammo!', 'bad');
+    Audio.play('bad');
+  }
+}
+
+function drawCombat() {
+  // Background
+  ctx.fillStyle = PAL.space;
+  ctx.fillRect(0, 0, W, H);
+  drawStarfield(combat.timer * 50);
+
+  if (combat.result) {
+    // Particles
+    combat.particles.forEach(p => {
+      ctx.globalAlpha = p.life * 2;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+    });
+    ctx.globalAlpha = 1;
+
+    // Result screen
+    drawPanel(W / 2 - 200, H / 2 - 80, 400, 160);
+    ctx.textAlign = 'center';
+    if (combat.result === 'win') {
+      ctx.fillStyle = PAL.accent;
+      ctx.font = 'bold 20px monospace';
+      ctx.fillText('VICTORY!', W / 2, H / 2 - 40);
+      ctx.fillStyle = PAL.gold;
+      ctx.font = '14px monospace';
+      ctx.fillText('+' + combat.reward + ' credits', W / 2, H / 2 - 10);
+    } else {
+      ctx.fillStyle = PAL.danger;
+      ctx.font = 'bold 20px monospace';
+      ctx.fillText(combat.result === 'retreat' ? 'RETREAT!' : 'DEFEAT!', W / 2, H / 2 - 40);
+      ctx.fillStyle = PAL.warning;
+      ctx.font = '14px monospace';
+      ctx.fillText('Hull damaged severely', W / 2, H / 2 - 10);
+    }
+
+    clearButtons();
+    addButton(W / 2 - 80, H / 2 + 30, 160, 36, 'CONTINUE', () => {
+      combat = null;
+      eventResult = null;
+      currentEvent = null;
+      checkDeath();
+      if (gameState !== STATE.GAMEOVER) {
+        if (travelProgress < travelDistance) {
+          gameState = STATE.TRAVEL;
+        } else {
+          arriveAtDestination();
+        }
+      }
+    }, 'good');
+    drawButtons();
+    checkButtons();
+    return;
+  }
+
+  // Draw player ship
+  drawSprite(SHIP_SPRITE, 120 - 32, combat.playerY - 24, 2);
+
+  // Draw enemy
+  if (combat.enemyHP > 0) {
+    ctx.save();
+    ctx.translate(combat.enemyX, combat.enemyY);
+    ctx.scale(-2, 2);
+    const spr = ENEMY_SPRITES[combat.sprite] || ENEMY_SPRITES.raider;
+    spr.forEach(([color, sx, sy, sw, sh]) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(sx - 16, sy - 16, sw || 1, sh || 1);
+    });
+    ctx.restore();
+  }
+
+  // Player bullets
+  ctx.fillStyle = PAL.gold;
+  ctx.shadowColor = PAL.gold;
+  ctx.shadowBlur = 6;
+  combat.bullets.forEach(b => {
+    ctx.fillRect(b.x - 4, b.y - 1, 8, 2);
+  });
+  ctx.shadowBlur = 0;
+
+  // Enemy bullets
+  ctx.fillStyle = PAL.danger;
+  ctx.shadowColor = PAL.danger;
+  ctx.shadowBlur = 6;
+  combat.enemyBullets.forEach(b => {
+    ctx.fillRect(b.x - 3, b.y - 3, 6, 6);
+  });
+  ctx.shadowBlur = 0;
+
+  // Particles
+  combat.particles.forEach(p => {
+    ctx.globalAlpha = Math.max(0, p.life * 2);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+  });
+  ctx.globalAlpha = 1;
+
+  // HUD
+  drawPanel(10, 10, 200, 50);
+  ctx.fillStyle = PAL.text;
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('YOUR SHIP', 18, 26);
+  drawBar(18, 32, 180, 8, combat.playerHP, combat.playerMaxHP, PAL.fuel);
+  ctx.fillStyle = PAL.textDim;
+  ctx.fillText('AMMO: ' + res.ammo, 18, 55);
+
+  drawPanel(W - 210, 10, 200, 50);
+  ctx.fillStyle = PAL.danger;
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(combat.enemyName, W - 202, 26);
+  drawBar(W - 202, 32, 180, 8, combat.enemyHP, combat.enemyMaxHP, PAL.danger);
+
+  // Instructions
+  ctx.fillStyle = PAL.textDim;
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('MOVE MOUSE/TOUCH TO DODGE  |  AUTO-FIRE', W / 2, H - 15);
+}
+
+// --- STATION ---
+function enterStation() {
+  const priceMultiplier = 1 + (sector - 1) * 0.2 + (res.reputation > 70 ? 0.3 : 0);
+  stationData = {
+    name: travelDestination.name,
+    prices: {
+      fuel: Math.ceil(3 * priceMultiplier),
+      food: Math.ceil(2 * priceMultiplier),
+      ammo: Math.ceil(4 * priceMultiplier),
+      parts: Math.ceil(8 * priceMultiplier),
+      repair: Math.ceil(5 * priceMultiplier),
+      crew: Math.ceil(20 * priceMultiplier),
+      oxygen: Math.ceil(2 * priceMultiplier),
+    },
+  };
+  gameState = STATE.STATION;
+  addLog('Docked at ' + stationData.name, 'info');
+}
+
+function drawStation() {
+  ctx.fillStyle = PAL.space;
+  ctx.fillRect(0, 0, W, H);
+  drawStarfield(0);
+
+  // Station sprite (big)
+  drawSprite(STATION_SPRITE, W / 2 - 64, 30, 4);
+
+  // Station name
+  ctx.fillStyle = PAL.accent;
+  ctx.font = 'bold 18px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(stationData.name, W / 2, 180);
+  ctx.fillStyle = PAL.textDim;
+  ctx.font = '11px monospace';
+  ctx.fillText('TRADING POST  |  SECTOR ' + sector, W / 2, 198);
+
+  // Trade panels
+  const sp = stationData.prices;
+  const panelY = 215;
+  drawPanel(20, panelY, W - 40, H - panelY - 60);
+
+  // Column headers
+  ctx.fillStyle = PAL.accent;
+  ctx.font = 'bold 11px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('RESOURCE', 40, panelY + 20);
+  ctx.fillText('STOCK', 200, panelY + 20);
+  ctx.fillText('PRICE', 310, panelY + 20);
+  ctx.fillText('ACTIONS', 430, panelY + 20);
+
+  const items = [
+    { key: 'fuel', label: 'FUEL', max: RES_MAX.fuel, color: PAL.fuel, amount: 10 },
+    { key: 'food', label: 'FOOD', max: RES_MAX.food, color: PAL.food, amount: 10 },
+    { key: 'ammo', label: 'AMMO', max: RES_MAX.ammo, color: PAL.ammo, amount: 10 },
+    { key: 'parts', label: 'SHIP PARTS', max: RES_MAX.parts, color: PAL.parts, amount: 5 },
+    { key: 'oxygen', label: 'OXYGEN', max: RES_MAX.oxygen, color: PAL.oxygen, amount: 10 },
+    { key: 'crew', label: 'HIRE CREW', max: res.maxCrew, color: PAL.morale, amount: 1, special: 'crew' },
+    { key: 'repair', label: 'HULL REPAIR', max: ship.hullMax, color: PAL.hull, amount: 10, special: 'repair' },
+  ];
+
+  clearButtons();
+
+  items.forEach((item, i) => {
+    const iy = panelY + 38 + i * 38;
+    const price = sp[item.key] * item.amount;
+    const currentVal = item.special === 'repair' ? res.hull : res[item.key];
+    const maxVal = item.max;
+
+    ctx.fillStyle = item.color;
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(item.label, 40, iy + 4);
+
+    ctx.fillStyle = PAL.text;
+    ctx.fillText(Math.floor(currentVal) + '/' + maxVal, 200, iy + 4);
+
+    ctx.fillStyle = PAL.gold;
+    ctx.fillText(price + ' cr', 310, iy + 4);
+
+    const canBuy = res.credits >= price && currentVal < maxVal;
+
+    addButton(430, iy - 12, 100, 26, 'BUY +' + item.amount, () => {
+      if (res.credits >= price && currentVal < maxVal) {
+        res.credits -= price;
+        if (item.special === 'repair') {
+          res.hull = Math.min(ship.hullMax, res.hull + item.amount);
+        } else if (item.special === 'crew') {
+          res.crew = Math.min(res.maxCrew, res.crew + item.amount);
+        } else {
+          res[item.key] = Math.min(maxVal, res[item.key] + item.amount);
+        }
+        Audio.play('good');
+      } else {
+        Audio.play('bad');
+      }
+    }, canBuy ? 'good' : 'normal');
+
+    // Sell button (only for tradeable resources)
+    if (!item.special && item.key !== 'oxygen') {
+      const sellPrice = Math.max(1, Math.floor(price * 0.5));
+      const canSell = res[item.key] >= item.amount;
+      addButton(545, iy - 12, 100, 26, 'SELL -' + item.amount, () => {
+        if (res[item.key] >= item.amount) {
+          res[item.key] -= item.amount;
+          res.credits += sellPrice;
+          creditsEarned += sellPrice;
+          Audio.play('good');
+        } else {
+          Audio.play('bad');
+        }
+      }, canSell ? 'normal' : 'normal');
+    }
+  });
+
+  // Credits display
+  ctx.fillStyle = PAL.gold;
+  ctx.font = 'bold 14px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('CREDITS: ' + res.credits, W / 2, panelY + 315);
+
+  // Morale boost option
+  addButton(40, H - 50, 200, 32, 'REST (+15 MORALE, -5 FOOD)', () => {
+    if (res.food >= 5) {
+      res.food -= 5;
+      res.morale = Math.min(100, res.morale + 15);
+      Audio.play('good');
+      addLog('Crew rested at ' + stationData.name, 'info');
+    } else {
+      Audio.play('bad');
+    }
+  }, res.food >= 5 ? 'good' : 'normal');
+
+  // Leave button
+  addButton(W - 220, H - 50, 200, 32, 'LEAVE STATION', () => {
+    stationData = null;
+    generateDestinations();
+    gameState = STATE.TRAVEL;
+    travelProgress = 0;
+    travelDistance = 0;
+    travelDestination = null;
+  }, 'normal');
+
+  drawButtons();
+  checkButtons();
+}
+
+// --- RESOURCE CONSUMPTION ---
+function consumeResources(dist) {
+  const crewFactor = res.crew / 8;
+  res.fuel -= dist * 0.5 * ship.fuelEfficiency;
+  res.food -= dist * 0.3 * crewFactor;
+  res.oxygen -= dist * 0.2 * crewFactor;
+  res.morale -= dist * 0.15;
+
+  // Clamp
+  res.fuel = Math.max(0, res.fuel);
+  res.food = Math.max(0, res.food);
+  res.oxygen = Math.max(0, res.oxygen);
+  res.morale = Math.max(0, Math.min(100, res.morale));
+
+  // Starvation
+  if (res.food <= 0) {
+    res.morale -= 5;
+    addLog('No food! Crew is starving!', 'bad');
+    if (Math.random() < 0.2) { res.crew = Math.max(1, res.crew - 1); crewLost++; addLog('A crew member died of starvation.', 'bad'); }
+  }
+  if (res.oxygen <= 0) {
+    res.hull -= 2;
+    addLog('Oxygen critical! Life support failing!', 'bad');
+    if (Math.random() < 0.3) { res.crew = Math.max(1, res.crew - 1); crewLost++; addLog('A crew member suffocated.', 'bad'); }
+  }
+  if (res.fuel <= 0) {
+    addLog('No fuel! Drifting...', 'bad');
+    res.morale -= 3;
+    res.hull -= 1; // slow deterioration
+  }
+}
+
+// --- DEATH CHECK ---
+function checkDeath() {
+  if (res.hull <= 0) {
+    deathCause = 'Your ship broke apart in the void. Hull integrity reached zero.';
+    die();
+  } else if (res.crew <= 0) {
+    deathCause = 'Your last crew member perished. The ship drifts on, empty.';
+    die();
+  } else if (res.morale <= 0 && Math.random() < 0.5) {
+    deathCause = 'The crew mutinied and threw you out an airlock. Fitting end for a captain who pushed too hard.';
+    die();
+  }
+}
+
+function die() {
+  gameState = STATE.GAMEOVER;
+  Audio.play('death');
+  saveScore();
+}
+
+// --- ARRIVAL ---
+function arriveAtDestination() {
+  addLog('Arrived at ' + travelDestination.name + ' (Sector ' + sector + ')', 'info');
+
+  // Sector advancement
+  if (leg % 5 === 0 && leg > 0) {
+    sector++;
+    addLog('Entered Sector ' + sector + '. Space grows more dangerous.', 'warning');
+  }
+
+  if (travelDestination.hasStation) {
+    enterStation();
+  } else {
+    generateDestinations();
+    gameState = STATE.TRAVEL;
+    travelProgress = 0;
+    travelDistance = 0;
+    travelDestination = null;
+  }
+}
+
+// --- DRAW RESOURCE PANEL ---
+function drawResourcePanel() {
+  drawPanel(0, 0, W, 52);
+
+  const items = [
+    { label: 'FUEL', val: res.fuel, max: RES_MAX.fuel, color: PAL.fuel },
+    { label: 'FOOD', val: res.food, max: RES_MAX.food, color: PAL.food },
+    { label: 'HULL', val: res.hull, max: ship.hullMax, color: PAL.hull },
+    { label: 'O2', val: res.oxygen, max: RES_MAX.oxygen, color: PAL.oxygen },
+    { label: 'MORALE', val: res.morale, max: RES_MAX.morale, color: PAL.morale },
+  ];
+
+  const startX = 10;
+  const barW = 70;
+  const gap = 8;
+
+  items.forEach((item, i) => {
+    const x = startX + i * (barW + gap);
+    drawBar(x, 22, barW, 8, item.val, item.max, item.color, item.label);
+  });
+
+  // Right side: credits, ammo, parts, crew
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'right';
+  ctx.fillStyle = PAL.gold;
+  ctx.fillText(res.credits + ' CR', W - 10, 16);
+  ctx.fillStyle = PAL.ammo;
+  ctx.fillText('AMMO ' + res.ammo, W - 10, 28);
+  ctx.fillStyle = PAL.parts;
+  ctx.fillText('PARTS ' + res.parts, W - 10, 40);
+  ctx.fillStyle = PAL.text;
+  ctx.fillText('CREW ' + res.crew, W - 100, 16);
+  ctx.fillStyle = PAL.reputation;
+  const repLabel = res.reputation < 30 ? 'LAWFUL' : (res.reputation < 60 ? 'SHADY' : 'PIRATE');
+  ctx.fillText('REP: ' + repLabel, W - 100, 28);
+  ctx.fillStyle = PAL.textDim;
+  ctx.fillText('SEC ' + sector + ' | ' + Math.floor(distance) + ' PC', W - 100, 40);
+}
+
+// --- TRAVEL SCREEN ---
+function drawTravelChoices() {
+  ctx.fillStyle = PAL.space;
+  ctx.fillRect(0, 0, W, H);
+  drawStarfield(distance);
+  drawResourcePanel();
+
+  // Current ship
+  drawSprite(SHIP_SPRITE, 60, H / 2 - 24, 2);
+
+  // Engine glow animation
+  const flicker = Math.random() > 0.5;
+  ctx.fillStyle = flicker ? '#ff6644' : '#ffaa44';
+  ctx.fillRect(60, H / 2 - 4, -6 - Math.random() * 8, 8);
+
+  ctx.fillStyle = PAL.accent;
+  ctx.font = 'bold 16px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('CHOOSE DESTINATION', W / 2, 75);
+
+  clearButtons();
+
+  destinations.forEach((dest, i) => {
+    const panelX = 180 + i * 210;
+    const panelY = 110;
+    const panelW = 190;
+    const panelH = 350;
+
+    // Draw connection line
+    ctx.strokeStyle = PAL.panelBorder;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(124, H / 2);
+    ctx.lineTo(panelX + panelW / 2, panelY + 60);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    drawPanel(panelX, panelY, panelW, panelH);
+
+    // Planet
+    drawPlanet(panelX + panelW / 2, panelY + 50, dest.planetRadius, dest.planetColor1, dest.planetColor2, dest.hasRing);
+
+    // Name
+    ctx.fillStyle = PAL.textBright;
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(dest.name, panelX + panelW / 2, panelY + 90);
+
+    // Info
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'left';
+    const infoX = panelX + 15;
+    let iy = panelY + 115;
+
+    ctx.fillStyle = PAL.fuel;
+    ctx.fillText('Distance: ' + dest.distance + ' pc', infoX, iy); iy += 16;
+    ctx.fillStyle = dest.fuelCost > res.fuel ? PAL.danger : PAL.fuel;
+    ctx.fillText('Fuel cost: ' + dest.fuelCost, infoX, iy); iy += 16;
+
+    ctx.fillStyle = PAL.text;
+    ctx.fillText('Station: ' + (dest.hasStation ? 'YES' : 'NO'), infoX, iy); iy += 16;
+    if (dest.hasStation) {
+      ctx.fillStyle = PAL.accent;
+      ctx.fillText('  (Trade & Repair)', infoX, iy);
+    }
+    iy += 20;
+
+    // Danger level
+    ctx.fillStyle = PAL.textDim;
+    ctx.fillText('Danger: ', infoX, iy);
+    for (let d = 0; d < 5; d++) {
+      ctx.fillStyle = d < dest.dangerLevel ? PAL.danger : '#222';
+      ctx.fillRect(infoX + 55 + d * 14, iy - 8, 10, 10);
+    }
+    iy += 20;
+
+    // Event chance
+    ctx.fillStyle = PAL.textDim;
+    ctx.fillText('Event chance: ' + Math.floor(dest.eventChance * 100) + '%', infoX, iy);
+
+    // Travel button
+    const canTravel = res.fuel >= dest.fuelCost;
+    addButton(panelX + 20, panelY + panelH - 55, panelW - 40, 35,
+      canTravel ? 'TRAVEL HERE' : 'NOT ENOUGH FUEL',
+      () => {
+        if (canTravel) {
+          travelDestination = dest;
+          travelDistance = dest.distance;
+          travelProgress = 0;
+          travelEventTriggered = false;
+          res.fuel -= dest.fuelCost;
+          leg++;
+          Audio.play('travel');
+          addLog('Departing for ' + dest.name + ' (' + dest.distance + ' pc)', 'info');
+        }
+      },
+      canTravel ? 'good' : 'danger'
+    );
+  });
+
+  // Log button
+  addButton(W - 110, H - 45, 100, 30, 'VIEW LOG', () => { gameState = STATE.LOG; }, 'normal');
+
+  drawButtons();
+  checkButtons();
+}
+
+function drawTravelAnimation(dt) {
+  ctx.fillStyle = PAL.space;
+  ctx.fillRect(0, 0, W, H);
+
+  // Scrolling stars for warp effect
+  const scroll = travelProgress * 100;
+  bgStars.forEach(s => {
+    const speed = s.size * 3;
+    const sx = (s.x - scroll * speed) % W;
+    const drawX = sx < 0 ? sx + W : sx;
+    ctx.globalAlpha = s.brightness;
+    ctx.fillStyle = s.color;
+    // Stretch stars for warp effect
+    ctx.fillRect(drawX, s.y, s.size + speed * 2, s.size);
+  });
+  ctx.globalAlpha = 1;
+
+  drawResourcePanel();
+
+  // Progress
+  travelProgress += dt * 3;
+  const pct = Math.min(1, travelProgress / travelDistance);
+
+  // Consume resources
+  consumeResources(dt * 3);
+
+  // Ship
+  const shipX = 100 + pct * (W - 300);
+  drawSprite(SHIP_SPRITE, shipX - 32, H / 2 - 24, 2);
+
+  // Engine trail
+  for (let i = 0; i < 3; i++) {
+    ctx.globalAlpha = 0.3 - i * 0.1;
+    ctx.fillStyle = i === 0 ? '#ff6644' : '#ffaa44';
+    ctx.fillRect(shipX - 40 - i * 20 - Math.random() * 10, H / 2 - 3, 15 + Math.random() * 10, 6);
+  }
+  ctx.globalAlpha = 1;
+
+  // Destination planet
+  if (travelDestination) {
+    const destX = W - 80;
+    drawPlanet(destX, H / 2, travelDestination.planetRadius * (0.5 + pct * 0.5),
+      travelDestination.planetColor1, travelDestination.planetColor2, travelDestination.hasRing);
+  }
+
+  // Progress bar
+  drawPanel(100, H - 80, W - 200, 40);
+  ctx.fillStyle = PAL.textDim;
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('TRAVELING TO: ' + (travelDestination ? travelDestination.name : '???'), 110, H - 65);
+  drawBar(110, H - 56, W - 220, 10, travelProgress, travelDistance, PAL.accent);
+  ctx.fillStyle = PAL.text;
+  ctx.textAlign = 'right';
+  ctx.fillText(Math.floor(pct * 100) + '%', W - 110, H - 45);
+
+  // Check for random event during travel
+  if (!travelEventTriggered && pct > 0.3 + Math.random() * 0.3) {
+    if (travelDestination && Math.random() < travelDestination.eventChance) {
+      travelEventTriggered = true;
+      currentEvent = pickEvent();
+      eventResult = null;
+      gameState = STATE.EVENT;
+      addLog('Event: ' + currentEvent.title, 'warning');
+      return;
+    }
+    travelEventTriggered = true; // don't check again this leg
+  }
+
+  // Arrival
+  if (pct >= 1) {
+    distance += travelDistance;
+    checkDeath();
+    if (gameState !== STATE.GAMEOVER) {
+      arriveAtDestination();
+    }
+  }
+}
+
+// --- EVENT SCREEN ---
+function drawEvent() {
+  ctx.fillStyle = PAL.space;
+  ctx.fillRect(0, 0, W, H);
+  drawStarfield(distance);
+  drawResourcePanel();
+
+  if (!currentEvent) return;
+
+  // Event panel
+  const pw = 550, ph = 400;
+  const px = (W - pw) / 2, py = 65;
+  drawPanel(px, py, pw, ph, eventResult ? (eventResult.good ? PAL.accent : PAL.danger) : PAL.panelBorder);
+
+  // Icon area
+  const iconColors = {
+    pirate: PAL.pirate, derelict: PAL.hull, station: PAL.accent,
+    storm: PAL.fuel, hazard: PAL.warning, friendly: PAL.friendly,
+    alien: PAL.morale, crew: PAL.morale, good: PAL.accent,
+  };
+  const iconCol = iconColors[currentEvent.icon] || PAL.text;
+  ctx.fillStyle = iconCol;
+  ctx.globalAlpha = 0.15;
+  ctx.beginPath();
+  ctx.arc(px + pw / 2, py + 50, 30, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = iconCol;
+  ctx.font = 'bold 14px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(currentEvent.icon ? currentEvent.icon.toUpperCase() : '!', px + pw / 2, py + 55);
+
+  // Title
+  ctx.fillStyle = iconCol;
+  ctx.font = 'bold 18px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(currentEvent.title, px + pw / 2, py + 100);
+
+  // Description
+  ctx.fillStyle = PAL.text;
+  ctx.font = '12px monospace';
+  const lines = wrapText(currentEvent.text, pw - 60);
+  lines.forEach((line, i) => {
+    ctx.fillText(line, px + pw / 2, py + 125 + i * 16);
+  });
+
+  clearButtons();
+
+  if (eventResult) {
+    // Show result
+    const ry = py + 125 + lines.length * 16 + 20;
+    ctx.fillStyle = eventResult.good ? PAL.accent : PAL.danger;
+    ctx.font = 'bold 12px monospace';
+    const resultLines = wrapText(eventResult.text, pw - 60);
+    resultLines.forEach((line, i) => {
+      ctx.fillText(line, px + pw / 2, ry + i * 16);
+    });
+
+    addButton(px + pw / 2 - 80, py + ph - 55, 160, 36, 'CONTINUE', () => {
+      currentEvent = null;
+      eventResult = null;
+      checkDeath();
+      if (gameState !== STATE.GAMEOVER) {
+        if (travelProgress < travelDistance) {
+          gameState = STATE.TRAVEL;
+        } else {
+          arriveAtDestination();
+        }
+      }
+    }, 'good');
+  } else {
+    // Show choices
+    const choiceY = py + 130 + lines.length * 16 + 15;
+    currentEvent.choices.forEach((choice, i) => {
+      const by = choiceY + i * 44;
+      addButton(px + 30, by, pw - 60, 36, choice.text, () => {
+        resolveChoice(choice);
+      }, 'normal');
+    });
+  }
+
+  drawButtons();
+  checkButtons();
+}
+
+// --- LOG SCREEN ---
+function drawLog() {
+  ctx.fillStyle = PAL.space;
+  ctx.fillRect(0, 0, W, H);
+  drawStarfield(0);
+
+  drawPanel(30, 30, W - 60, H - 80);
+
+  ctx.fillStyle = PAL.accent;
+  ctx.font = 'bold 16px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('CAPTAIN\'S LOG', W / 2, 55);
+
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'left';
+  const logColors = { info: PAL.text, good: PAL.accent, bad: PAL.danger, warning: PAL.warning };
+
+  const maxDisplay = Math.min(log.length, 22);
+  for (let i = 0; i < maxDisplay; i++) {
+    const entry = log[i];
+    const y = 80 + i * 20;
+    ctx.fillStyle = PAL.textDim;
+    ctx.fillText('[' + Math.floor(entry.time) + ' pc]', 50, y);
+    ctx.fillStyle = logColors[entry.type] || PAL.text;
+    ctx.fillText(entry.msg, 130, y);
+  }
+
+  clearButtons();
+  addButton(W / 2 - 80, H - 60, 160, 36, 'BACK', () => {
+    gameState = STATE.TRAVEL;
+  }, 'normal');
+  drawButtons();
+  checkButtons();
+}
+
+// --- MENU ---
+function drawMenuScreen() {
+  ctx.fillStyle = PAL.space;
+  ctx.fillRect(0, 0, W, H);
+  drawStarfield(gameTime * 5);
+
+  // Title
+  ctx.save();
+  ctx.shadowColor = PAL.accent;
+  ctx.shadowBlur = 30;
+  ctx.fillStyle = PAL.accent;
+  ctx.font = 'bold 42px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('VOID', W / 2, 160);
+  ctx.fillText('VOID', W / 2, 160);
+  ctx.shadowColor = PAL.warning;
+  ctx.fillStyle = PAL.warning;
+  ctx.fillText('DRIFTER', W / 2, 210);
+  ctx.fillText('DRIFTER', W / 2, 210);
+  ctx.restore();
+
+  ctx.fillStyle = PAL.textDim;
+  ctx.font = '12px monospace';
+  ctx.fillText('A SPACE PIRATE SURVIVAL GAME', W / 2, 240);
+
+  // Ship
+  drawSprite(SHIP_SPRITE, W / 2 - 32, 270, 2);
+
+  clearButtons();
+  addButton(W / 2 - 100, 330, 200, 40, 'BEGIN VOYAGE', () => {
+    Audio.init();
+    startNewGame();
+  }, 'good');
+
+  if (highScores.length > 0) {
+    addButton(W / 2 - 100, 385, 200, 36, 'HIGH SCORES', () => {
+      Audio.init();
+      gameState = 'scores';
+    }, 'normal');
+  }
+
+  // Credits
+  ctx.fillStyle = PAL.textDim;
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('SURVIVE THE ENDLESS VOID. THERE IS NO DESTINATION.', W / 2, H - 50);
+  ctx.fillText('MANAGE YOUR CREW, RAID SHIPS, TRADE, AND ENDURE.', W / 2, H - 35);
+
+  drawButtons();
+  checkButtons();
+}
+
+function drawScoresScreen() {
+  ctx.fillStyle = PAL.space;
+  ctx.fillRect(0, 0, W, H);
+  drawStarfield(0);
+
+  ctx.fillStyle = PAL.accent;
+  ctx.font = 'bold 20px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('HIGH SCORES', W / 2, 60);
+
+  if (highScores.length === 0) {
+    ctx.fillStyle = PAL.textDim;
+    ctx.font = '12px monospace';
+    ctx.fillText('No scores yet', W / 2, 150);
+  } else {
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = PAL.textDim;
+    ctx.fillText('RANK', 150, 100);
+    ctx.fillText('DISTANCE', 230, 100);
+    ctx.fillText('SECTOR', 370, 100);
+    ctx.fillText('PIRATES', 470, 100);
+    ctx.fillText('CREDITS', 570, 100);
+
+    for (let i = 0; i < highScores.length; i++) {
+      const s = highScores[i];
+      const y = 125 + i * 28;
+      ctx.fillStyle = i === 0 ? PAL.gold : (i < 3 ? PAL.accent : PAL.text);
+      ctx.font = i === 0 ? 'bold 12px monospace' : '11px monospace';
+      ctx.fillText('#' + (i + 1), 150, y);
+      ctx.fillText(Math.floor(s.distance) + ' pc', 230, y);
+      ctx.fillText(s.sector, 370, y);
+      ctx.fillText(s.piratesDefeated || 0, 470, y);
+      ctx.fillText(s.credits || 0, 570, y);
+    }
+  }
+
+  clearButtons();
+  addButton(W / 2 - 80, H - 80, 160, 36, 'BACK', () => { gameState = STATE.MENU; }, 'normal');
+  drawButtons();
+  checkButtons();
+}
+
+// --- GAME OVER ---
+function drawGameOverScreen() {
+  ctx.fillStyle = PAL.space;
+  ctx.fillRect(0, 0, W, H);
+  drawStarfield(0);
+
+  drawPanel(W / 2 - 250, 60, 500, 440);
+
+  ctx.fillStyle = PAL.danger;
+  ctx.font = 'bold 28px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('VOYAGE ENDED', W / 2, 110);
+
+  ctx.fillStyle = PAL.text;
+  ctx.font = '12px monospace';
+  const causeLines = wrapText(deathCause, 420);
+  causeLines.forEach((line, i) => {
+    ctx.fillText(line, W / 2, 145 + i * 16);
+  });
+
+  const statY = 145 + causeLines.length * 16 + 25;
+  ctx.fillStyle = PAL.accent;
+  ctx.font = 'bold 14px monospace';
+  ctx.fillText('VOYAGE STATISTICS', W / 2, statY);
+
+  const stats = [
+    ['Distance Traveled', Math.floor(distance) + ' parsecs'],
+    ['Sectors Explored', sector],
+    ['Pirates Defeated', piratesDefeated],
+    ['Ships Raided', shipsRaided],
+    ['Crew Lost', crewLost],
+    ['Credits Earned', creditsEarned],
+    ['Final Crew Size', res.crew],
+  ];
+
+  ctx.font = '12px monospace';
+  stats.forEach(([label, val], i) => {
+    const sy = statY + 20 + i * 22;
+    ctx.fillStyle = PAL.textDim;
+    ctx.textAlign = 'left';
+    ctx.fillText(label, W / 2 - 180, sy);
+    ctx.fillStyle = PAL.text;
+    ctx.textAlign = 'right';
+    ctx.fillText(String(val), W / 2 + 180, sy);
+  });
+
+  // High score check
+  if (highScores.length > 0 && highScores[0].distance === distance) {
+    ctx.fillStyle = PAL.gold;
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('NEW BEST DISTANCE!', W / 2, statY + 185);
+  }
+
+  clearButtons();
+  addButton(W / 2 - 100, 460, 200, 36, 'TRY AGAIN', () => {
+    Audio.init();
+    startNewGame();
+  }, 'good');
+  drawButtons();
+  checkButtons();
+}
+
+// --- NEW GAME ---
+function startNewGame() {
+  res.fuel = 80;
+  res.food = 80;
+  res.hull = 100;
+  res.morale = 70;
+  res.credits = 200;
+  res.ammo = 30;
+  res.parts = 10;
+  res.reputation = 50;
+  res.oxygen = 100;
+  res.crew = 8;
+
+  ship.hullMax = 100;
+  ship.fuelEfficiency = 1.0;
+  ship.weaponPower = 1;
+  ship.shieldStrength = 0;
+  ship.cargoCapacity = 1.0;
+
+  distance = 0;
+  sector = 1;
+  leg = 0;
+  piratesDefeated = 0;
+  shipsRaided = 0;
+  crewLost = 0;
+  creditsEarned = 0;
+  deathCause = '';
+
+  log.length = 0;
+  addLog('Voyage begins. The void awaits.', 'info');
+
+  travelProgress = 0;
+  travelDistance = 0;
+  travelDestination = null;
+  travelEventTriggered = false;
+  currentEvent = null;
+  eventResult = null;
+  stationData = null;
+  combat = null;
+
+  generateDestinations();
+  gameState = STATE.TRAVEL;
+}
+
+// --- MAIN LOOP ---
+let lastTime = 0;
+function gameLoop(time) {
+  requestAnimationFrame(gameLoop);
+  const dt = Math.min(0.05, (time - lastTime) / 1000);
+  lastTime = time;
+  gameTime += dt;
+
+  // Ambient sound
+  if (Audio.initialized && gameTime - lastAmbienceTime > 4 && gameState !== STATE.MENU) {
+    Audio.ambience(sector * 0.2);
+    lastAmbienceTime = gameTime;
+  }
+
+  try {
+    switch(gameState) {
+      case STATE.MENU:
+        drawMenuScreen();
+        break;
+      case 'scores':
+        drawScoresScreen();
+        break;
+      case STATE.TRAVEL:
+        if (travelDestination && travelProgress < travelDistance) {
+          drawTravelAnimation(dt);
+        } else {
+          drawTravelChoices();
+        }
+        break;
+      case STATE.EVENT:
+        drawEvent();
+        break;
+      case STATE.STATION:
+        drawStation();
+        break;
+      case STATE.COMBAT:
+        updateCombat(dt);
+        drawCombat();
+        break;
+      case STATE.LOG:
+        drawLog();
+        break;
+      case STATE.GAMEOVER:
+        drawGameOverScreen();
+        break;
+    }
+  } catch(err) {
+    console.error('Game error:', err);
+    ctx.fillStyle = PAL.danger;
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Error: ' + err.message, W / 2, H / 2);
+  }
+
+  mouse.clicked = false;
+}
+
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
