@@ -2,6 +2,8 @@
 
 A space pirate survival game inspired by Oregon Trail. Built with vanilla HTML5 Canvas, JavaScript, and Web Audio API. No external assets or libraries.
 
+**Play it here:** [https://0xm153ry.github.io/void-drifter/](https://0xm153ry.github.io/void-drifter/)
+
 ## Gameplay
 
 You are a space pirate captain drifting through the void. There is no destination -- only survival. Manage your crew, raid ships, trade at stations, and endure the endless dangers of deep space.
