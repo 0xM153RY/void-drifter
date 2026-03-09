@@ -924,6 +924,116 @@ const ENEMY_SPRITES = {
   ],
 };
 
+// --- EVENT ICON SPRITES (16x16 pixel art) ---
+const EVENT_SPRITES = {
+  pirate: [
+    // Skull
+    ['#cc2244', 4, 2, 8, 6], ['#ff4466', 5, 3, 6, 4],
+    ['#000000', 5, 4, 2, 2], ['#000000', 9, 4, 2, 2], // eyes
+    ['#cc2244', 6, 7, 4, 1], // jaw
+    // Crossbones
+    ['#dddddd', 2, 10, 3, 1], ['#dddddd', 11, 10, 3, 1],
+    ['#dddddd', 3, 11, 2, 1], ['#dddddd', 11, 11, 2, 1],
+    ['#dddddd', 5, 12, 6, 1],
+    ['#dddddd', 3, 13, 2, 1], ['#dddddd', 11, 13, 2, 1],
+    ['#dddddd', 2, 14, 3, 1], ['#dddddd', 11, 14, 3, 1],
+  ],
+  derelict: [
+    // Broken ship hull
+    ['#556677', 2, 6, 12, 4], ['#445566', 4, 5, 8, 6],
+    ['#334455', 6, 4, 4, 8],
+    // Damage holes
+    ['#111122', 5, 6, 2, 2], ['#111122', 9, 7, 2, 2],
+    // Debris floating away
+    ['#445566', 0, 3, 2, 1], ['#445566', 14, 4, 2, 1],
+    ['#334455', 1, 11, 1, 1], ['#334455', 13, 2, 1, 1],
+    // Faint glow
+    ['#ffaa44', 7, 7, 1, 1],
+  ],
+  station: [
+    // Station body
+    ['#334455', 5, 1, 6, 14], ['#445566', 3, 4, 10, 8],
+    // Ring
+    ['#556677', 1, 6, 2, 4], ['#556677', 13, 6, 2, 4],
+    // Docking lights
+    ['#00ffcc', 6, 7, 4, 2],
+    ['#ff4444', 2, 7, 1, 1], ['#44ff44', 13, 8, 1, 1],
+    // Antenna
+    ['#667788', 7, 0, 2, 2],
+  ],
+  storm: [
+    // Lightning bolt
+    ['#44aaff', 6, 1, 3, 3], ['#44aaff', 5, 3, 3, 2],
+    ['#44aaff', 4, 5, 4, 2], ['#44aaff', 6, 7, 3, 2],
+    ['#44aaff', 7, 9, 2, 3], ['#66ccff', 7, 11, 2, 3],
+    // Sparks
+    ['#ffffff', 3, 2, 1, 1], ['#ffffff', 11, 5, 1, 1],
+    ['#ffffff', 2, 8, 1, 1], ['#ffffff', 12, 10, 1, 1],
+    ['#88ddff', 10, 3, 1, 1], ['#88ddff', 4, 12, 1, 1],
+  ],
+  hazard: [
+    // Warning triangle
+    ['#ff6644', 7, 1, 2, 2],
+    ['#ff6644', 6, 3, 4, 2],
+    ['#ff6644', 5, 5, 6, 2],
+    ['#ff6644', 4, 7, 8, 2],
+    ['#ff6644', 3, 9, 10, 2],
+    ['#ff6644', 2, 11, 12, 2],
+    // Exclamation
+    ['#000000', 7, 4, 2, 4],
+    ['#000000', 7, 10, 2, 2],
+  ],
+  friendly: [
+    // Friendly ship (green)
+    ['#33aa55', 4, 6, 8, 4], ['#44bb66', 6, 5, 6, 6],
+    ['#55cc77', 8, 4, 4, 8],
+    // Nose
+    ['#66dd88', 12, 7, 3, 2],
+    // Engine
+    ['#44ff88', 1, 7, 3, 2],
+    // Signal waves
+    ['#44ff88', 12, 3, 1, 1], ['#44ff88', 14, 2, 1, 1],
+    ['#44ff88', 12, 11, 1, 1], ['#44ff88', 14, 12, 1, 1],
+  ],
+  alien: [
+    // Alien head
+    ['#7744aa', 4, 2, 8, 8], ['#8855bb', 5, 1, 6, 9],
+    // Big eyes
+    ['#44ffaa', 5, 4, 3, 2], ['#44ffaa', 8, 4, 3, 2],
+    ['#000000', 6, 4, 1, 1], ['#000000', 9, 4, 1, 1],
+    // Mouth
+    ['#553388', 6, 8, 4, 1],
+    // Antennae
+    ['#8855bb', 5, 0, 1, 2], ['#8855bb', 10, 0, 1, 2],
+    ['#44ffaa', 5, 0, 1, 1], ['#44ffaa', 10, 0, 1, 1],
+    // Body
+    ['#6633aa', 5, 10, 6, 4], ['#7744aa', 6, 11, 4, 4],
+  ],
+  crew: [
+    // Group of crew silhouettes
+    ['#667788', 2, 6, 3, 6], ['#778899', 3, 4, 2, 3], // person 1
+    ['#556677', 6, 5, 3, 7], ['#667788', 7, 3, 2, 3], // person 2
+    ['#778899', 10, 6, 3, 6], ['#889900', 11, 4, 2, 3], // person 3
+    // Heads
+    ['#d4a574', 3, 3, 2, 2], ['#c68c5b', 7, 2, 2, 2], ['#8d5524', 11, 3, 2, 2],
+    // Floor
+    ['#334455', 1, 12, 14, 2],
+  ],
+  good: [
+    // Star/treasure
+    ['#ffcc00', 7, 0, 2, 4],
+    ['#ffcc00', 3, 5, 10, 2],
+    ['#ffcc00', 7, 8, 2, 4],
+    ['#ffcc00', 5, 3, 2, 2], ['#ffcc00', 9, 3, 2, 2],
+    ['#ffcc00', 5, 9, 2, 2], ['#ffcc00', 9, 9, 2, 2],
+    // Inner glow
+    ['#ffee88', 7, 5, 2, 2],
+    // Sparkles
+    ['#ffffff', 2, 2, 1, 1], ['#ffffff', 13, 3, 1, 1],
+    ['#ffffff', 3, 11, 1, 1], ['#ffffff', 12, 10, 1, 1],
+  ],
+};
+
 // --- PROCEDURAL CREW SPRITE GENERATOR ---
 // Deterministic hash from string -> stable pseudo-random sequence
 function spriteHash(str) {
@@ -1124,6 +1234,13 @@ function drawPlanet(x, y, radius, color1, color2, hasRing) {
 function drawPanel(x, y, w, h, highlight) {
   ctx.fillStyle = PAL.panel;
   ctx.fillRect(x, y, w, h);
+  // Subtle inner gradient for depth
+  const ig = ctx.createLinearGradient(x, y, x, y + h);
+  ig.addColorStop(0, 'rgba(255,255,255,0.02)');
+  ig.addColorStop(0.5, 'rgba(0,0,0,0)');
+  ig.addColorStop(1, 'rgba(0,0,0,0.05)');
+  ctx.fillStyle = ig;
+  ctx.fillRect(x, y, w, h);
   ctx.strokeStyle = highlight || PAL.panelBorder;
   ctx.lineWidth = 1;
   ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
@@ -1144,14 +1261,25 @@ function drawBar(x, y, w, h, value, max, color, label) {
   const pct = Math.max(0, Math.min(1, value / max));
   ctx.fillStyle = '#0a0a14';
   ctx.fillRect(x, y, w, h);
-  const barColor = pct < 0.2 ? PAL.danger : (pct < 0.4 ? PAL.warning : color);
-  ctx.fillStyle = barColor;
+  const critical = pct < 0.2;
+  const low = pct < 0.4;
+  const barColor = critical ? PAL.danger : (low ? PAL.warning : color);
+  // Gradient fill
+  const grad = ctx.createLinearGradient(x, y, x, y + h);
+  grad.addColorStop(0, barColor);
+  grad.addColorStop(1, barColor + '88');
+  ctx.fillStyle = grad;
+  // Critical pulse
+  if (critical && typeof gameTime !== 'undefined') {
+    ctx.globalAlpha = 0.6 + Math.sin(gameTime * 6) * 0.4;
+  }
   ctx.fillRect(x, y, w * pct, h);
+  ctx.globalAlpha = 1;
   ctx.strokeStyle = '#333';
   ctx.lineWidth = 1;
   ctx.strokeRect(x, y, w, h);
   if (label) {
-    ctx.fillStyle = PAL.text;
+    ctx.fillStyle = critical ? PAL.danger : PAL.text;
     ctx.font = '9px monospace';
     ctx.textAlign = 'left';
     ctx.fillText(label, x, y - 2);
@@ -2477,6 +2605,24 @@ function drawCombat() {
   ctx.fillText(combat.enemyName, W-202, 26);
   drawBar(W-202, 32, 180, 8, combat.enemyHP, combat.enemyMaxHP, PAL.danger);
 
+  // Crew battle stations - show active gunner and pilot sprites
+  const gunner = crewMembers.find(c => c.alive && c.role === 'Gunner');
+  const pilot = crewMembers.find(c => c.alive && c.role === 'Pilot');
+  if (gunner && gunner.sprite) {
+    drawSprite(gunner.sprite, 10, H - 62, 2);
+    ctx.fillStyle = PAL.ammo; ctx.font = '7px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(gunner.name.split(' ')[0], 22, H - 12);
+    ctx.fillStyle = PAL.textDim; ctx.font = '6px monospace';
+    ctx.fillText('GUNNER', 22, H - 5);
+  }
+  if (pilot && pilot.sprite) {
+    drawSprite(pilot.sprite, 50, H - 62, 2);
+    ctx.fillStyle = PAL.fuel; ctx.font = '7px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(pilot.name.split(' ')[0], 62, H - 12);
+    ctx.fillStyle = PAL.textDim; ctx.font = '6px monospace';
+    ctx.fillText('PILOT', 62, H - 5);
+  }
+
   ctx.fillStyle = PAL.textDim; ctx.font = '10px monospace'; ctx.textAlign = 'center';
   ctx.fillText('MOVE MOUSE/TOUCH TO DODGE  |  AUTO-FIRE', W/2, H-15);
 }
@@ -2943,11 +3089,9 @@ function consumeResources(dist) {
   const cookBonus = 1 - getCrewBonus('Cook') * 0.2;
   const pilotBonus = 1 - getCrewBonus('Pilot') * 0.1;
 
-  // Fuel consumed proportionally during travel (not upfront)
+  // Fuel consumed proportionally during travel only
   if (travelDestination && fuelPerTick > 0) {
-    res.fuel -= fuelPerTick * dist;
-  } else {
-    res.fuel -= dist * 0.5 * ship.fuelEfficiency * pilotBonus;
+    res.fuel -= fuelPerTick * dist * pilotBonus;
   }
   res.food -= dist * 0.3 * crewFactor * cookBonus;
   res.oxygen -= dist * 0.2 * crewFactor;
@@ -3006,6 +3150,7 @@ function checkDeath() {
 // --- ARRIVAL ---
 function arriveAtDestination() {
   addLog('Arrived at ' + travelDestination.name + ' (Sector ' + sector + ')', 'info');
+  fuelPerTick = 0; // Reset fuel consumption rate
 
   if (leg % 5 === 0 && leg > 0) {
     sector++;
@@ -3284,10 +3429,13 @@ function drawTravelAnimation(dt) {
 
   drawResourcePanel();
 
-  travelProgress += dt * 3;
+  const step = dt * 3;
+  const remaining = travelDistance - travelProgress;
+  const clampedStep = Math.min(step, Math.max(0, remaining));
+  travelProgress += step;
   const pct = Math.min(1, travelProgress / travelDistance);
 
-  consumeResources(dt * 3);
+  consumeResources(clampedStep);
 
   const shipX = 100 + pct * (W - 300);
   drawSprite(SHIP_SPRITE, shipX - 32, H/2-24, 2);
@@ -3382,17 +3530,35 @@ function drawEvent() {
     hazard:PAL.warning, friendly:PAL.friendly, alien:PAL.morale, crew:PAL.morale, good:PAL.accent };
   const iconCol = iconColors[currentEvent.icon] || PAL.text;
 
-  const iconSymbols = { pirate:'\u2620', derelict:'\u2693', station:'\u2302', storm:'\u26A1',
-    hazard:'\u26A0', friendly:'\u2665', alien:'\u2604', crew:'\u263A', good:'\u2605' };
-  const iconChar = iconSymbols[currentEvent.icon] || '!';
-
+  // Event icon sprite or fallback symbol
   ctx.fillStyle = iconCol; ctx.globalAlpha = 0.15;
   ctx.beginPath(); ctx.arc(px+pw/2, py+50, 30, 0, Math.PI*2); ctx.fill();
   ctx.globalAlpha = 1;
-  ctx.fillStyle = iconCol; ctx.font = 'bold 22px monospace'; ctx.textAlign = 'center';
-  ctx.fillText(iconChar, px+pw/2, py+57);
+  const evtSprite = EVENT_SPRITES[currentEvent.icon];
+  if (evtSprite) {
+    drawSprite(evtSprite, px+pw/2 - 24, py+26, 3);
+  } else {
+    ctx.fillStyle = iconCol; ctx.font = 'bold 22px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('!', px+pw/2, py+57);
+  }
+
+  // Contextual sprites flanking the event icon
+  if (currentEvent.icon === 'crew' || currentEvent.icon === 'good') {
+    const alive = crewMembers.filter(c => c.alive);
+    if (alive.length > 0 && alive[0].sprite) drawSprite(alive[0].sprite, px + 30, py + 30, 2.5);
+    if (alive.length > 1 && alive[1].sprite) drawSprite(alive[1].sprite, px + pw - 65, py + 30, 2.5);
+  } else if (currentEvent.icon === 'pirate') {
+    const spr = ENEMY_SPRITES.raider;
+    ctx.save(); ctx.translate(px + 50, py + 48); ctx.scale(-2, 2);
+    spr.forEach(([color, sx, sy, sw, sh]) => { ctx.fillStyle = color; ctx.fillRect(sx-16, sy-16, sw||1, sh||1); });
+    ctx.restore();
+    drawSprite(SHIP_SPRITE, px + pw - 80, py + 32, 2);
+  } else if (currentEvent.icon === 'friendly' || currentEvent.icon === 'derelict') {
+    drawSprite(SHIP_SPRITE, px + pw - 80, py + 32, 2);
+  }
 
   ctx.fillStyle = iconCol; ctx.font = 'bold 18px monospace';
+  ctx.textAlign = 'center';
   ctx.fillText(currentEvent.title, px+pw/2, py+100);
 
   ctx.fillStyle = PAL.text; ctx.font = '12px monospace';
@@ -4349,7 +4515,7 @@ function drawMenuScreen() {
     ctx.fillStyle = PAL.textDim;
     ctx.globalAlpha = 0.4;
     ctx.font = '8px monospace';
-    ctx.fillText('v2.0', W / 2, H - 15);
+    ctx.fillText('v2.1', W / 2, H - 15);
     ctx.globalAlpha = 1;
 
     drawButtons();
