@@ -20,14 +20,19 @@ You are a space pirate captain drifting through the void. There is no destinatio
 - **Reputation** - Lawful to Infamous Pirate (affects encounters and prices)
 
 ### Features
-- Event-driven travel between procedurally generated star systems
-- 16+ random events with meaningful choices
-- Trading stations with buy/sell mechanics
-- Combat mini-game (dodge and shoot) for pirate encounters and boss fights
+- 47 unique events with branching choices and consequence chains
+- Procedurally generated star systems with planet types (Mining Colony, Jungle World, Ice Planet, etc.)
+- Crew system with 8 roles (Pilot, Engineer, Gunner, Medic, Cook, Navigator, Smuggler, Brawler), leveling, and skill bonuses
+- Full station system: trading, bar, quest board, shady deals
+- Combat mini-game (dodge and shoot) with pirate encounters and boss fights
+- Enhanced parallax background with galaxies, nebulae, comets, and debris
+- Story beats and achievement tracking
+- Death animations and cinematic game-over sequences
 - Difficulty scales with distance traveled
 - Persistent high score tracking
 - Keyboard shortcuts (number keys for choices, Enter to confirm)
 - Touch/mobile support
+- Synthesized audio via Web Audio API (no external assets)
 
 ## Controls
 
