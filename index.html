@@ -1307,29 +1307,52 @@ function drawButtons() {
       return;
     }
 
+    // Smooth hover animation
+    if (!b._hoverAnim) b._hoverAnim = 0;
+    b._hoverAnim += (b.hovered ? 0.12 : -0.12);
+    b._hoverAnim = Math.max(0, Math.min(1, b._hoverAnim));
+    const ha = b._hoverAnim;
+
+    let bgNorm, bgHov, stNorm, stHov, glowCol;
     if (b.style === 'danger') {
-      ctx.fillStyle = b.hovered ? '#441122' : '#220a0a';
-      ctx.strokeStyle = b.hovered ? PAL.danger : '#661122';
+      bgNorm = '#220a0a'; bgHov = '#441122'; stNorm = '#661122'; stHov = PAL.danger; glowCol = PAL.danger;
     } else if (b.style === 'good') {
-      ctx.fillStyle = b.hovered ? '#112233' : '#0a1520';
-      ctx.strokeStyle = b.hovered ? PAL.accent : PAL.accentDim;
+      bgNorm = '#0a1520'; bgHov = '#112233'; stNorm = PAL.accentDim; stHov = PAL.accent; glowCol = PAL.accent;
     } else {
-      ctx.fillStyle = b.hovered ? PAL.panelLight : PAL.panel;
-      ctx.strokeStyle = b.hovered ? PAL.accent : PAL.panelBorder;
+      bgNorm = PAL.panel; bgHov = PAL.panelLight; stNorm = PAL.panelBorder; stHov = PAL.accent; glowCol = PAL.accent;
     }
 
+    // Glow effect on hover
+    if (ha > 0) {
+      ctx.save();
+      ctx.shadowColor = glowCol;
+      ctx.shadowBlur = 8 * ha;
+      ctx.fillStyle = 'rgba(0,0,0,0.01)';
+      ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.restore();
+    }
+
+    ctx.fillStyle = ha > 0 ? bgHov : bgNorm;
     ctx.fillRect(b.x, b.y, b.w, b.h);
-    ctx.lineWidth = b.hovered ? 2 : 1;
+    // Top edge highlight
+    if (ha > 0) {
+      ctx.fillStyle = glowCol;
+      ctx.globalAlpha = ha * 0.3;
+      ctx.fillRect(b.x, b.y, b.w, 1);
+      ctx.globalAlpha = 1;
+    }
+    ctx.strokeStyle = ha > 0 ? stHov : stNorm;
+    ctx.lineWidth = 1 + ha;
     ctx.strokeRect(b.x, b.y, b.w, b.h);
 
-    ctx.fillStyle = b.hovered ? PAL.textBright : PAL.text;
-    ctx.font = b.hovered ? 'bold 12px monospace' : '12px monospace';
+    ctx.fillStyle = ha > 0 ? PAL.textBright : PAL.text;
+    ctx.font = ha > 0.5 ? 'bold 12px monospace' : '12px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(b.text, b.x + b.w / 2, b.y + b.h / 2);
     ctx.textBaseline = 'alphabetic';
 
-    // Key hint (skip for tab-style buttons)
+    // Key hint
     if (keyIdx < 9 && gameState !== STATE.COMBAT) {
       ctx.fillStyle = PAL.textDim;
       ctx.font = '9px monospace';
@@ -1390,6 +1413,42 @@ const STATE = {
 
 let gameState = STATE.MENU;
 let gameTime = 0;
+
+// --- SCREEN TRANSITION SYSTEM ---
+const transition = { active: false, alpha: 0, phase: 'none', callback: null, duration: 0.25 };
+function startTransition(callback) {
+  if (transition.active) { callback(); return; }
+  transition.active = true;
+  transition.alpha = 0;
+  transition.phase = 'out';
+  transition.callback = callback;
+}
+function updateTransition(dt) {
+  if (!transition.active) return;
+  const speed = 1 / transition.duration;
+  if (transition.phase === 'out') {
+    transition.alpha = Math.min(1, transition.alpha + dt * speed);
+    if (transition.alpha >= 1) {
+      transition.phase = 'in';
+      if (transition.callback) transition.callback();
+      transition.callback = null;
+    }
+  } else if (transition.phase === 'in') {
+    transition.alpha = Math.max(0, transition.alpha - dt * speed);
+    if (transition.alpha <= 0) {
+      transition.active = false;
+      transition.phase = 'none';
+    }
+  }
+}
+function drawTransition() {
+  if (!transition.active) return;
+  ctx.fillStyle = 'rgba(6, 6, 18, ' + transition.alpha + ')';
+  ctx.fillRect(0, 0, W, H);
+}
+
+// --- TAB TRANSITION ---
+let tabSwitchTime = 0;
 
 // --- RESOURCES ---
 const res = {
@@ -2555,12 +2614,14 @@ function drawCombat() {
     }
     clearButtons();
     addButton(W/2-80, H/2+30, 160, 36, 'CONTINUE', () => {
-      combat = null; eventResult = null; currentEvent = null;
-      checkDeath();
-      if (gameState !== STATE.GAMEOVER && gameState !== STATE.DEATH_ANIM) {
-        if (travelProgress < travelDistance) gameState = STATE.TRAVEL;
-        else arriveAtDestination();
-      }
+      startTransition(() => {
+        combat = null; eventResult = null; currentEvent = null;
+        checkDeath();
+        if (gameState !== STATE.GAMEOVER && gameState !== STATE.DEATH_ANIM) {
+          if (travelProgress < travelDistance) gameState = STATE.TRAVEL;
+          else arriveAtDestination();
+        }
+      });
     }, 'good');
     drawButtons(); checkButtons();
     return;
@@ -2641,33 +2702,43 @@ const BAR_NPCS = [
 ];
 
 const RUMOR_TEMPLATES = [
-  'I heard there\'s a derelict full of gold near {dest}...',
-  'Watch out for the Crimson Fleet in Sector {sec}...',
-  'Someone\'s been asking about a ship matching your description...',
-  'They say {treasure} is hidden somewhere in Sector {sec2}...',
-  'A wormhole opened near {dest}. Ships are disappearing.',
-  'The station at {dest} is selling fuel at half price. Or was it double?',
-  '{rival} was seen three sectors over. Looking angry.',
-  'I wouldn\'t go near the nebula in Sector {sec}. Something lives there.',
-  'A merchant is paying double for alien artifacts right now.',
-  'The patrol ships in Sector {sec2} are doing random searches. Watch your cargo.',
+  { text: 'Derelict hauler near {dest}. Still has cargo.', icon: 'derelict' },
+  { text: 'Crimson Fleet raiding Sector {sec}. Steer clear.', icon: 'pirate' },
+  { text: 'Someone\'s asking about your ship. Not friendly.', icon: 'hazard' },
+  { text: '{treasure} — last traced to Sector {sec2}.', icon: 'alien' },
+  { text: 'Wormhole near {dest}. Ships going in, not coming out.', icon: 'storm' },
+  { text: '{dest} station has cheap fuel. Maybe. Source unclear.', icon: 'station' },
+  { text: '{rival} spotted three sectors out. Armed heavy.', icon: 'pirate' },
+  { text: 'Something lives in the Sector {sec} nebula. Don\'t go.', icon: 'alien' },
+  { text: 'Alien artifacts fetching double right now. Sell fast.', icon: 'good' },
+  { text: 'Patrol sweeps in Sector {sec2}. Hide your cargo.', icon: 'hazard' },
+  { text: 'Abandoned mining rig near {dest}. Parts for the taking.', icon: 'derelict' },
+  { text: 'Med supplies scarce past Sector {sec}. Stock up.', icon: 'crew' },
+  { text: 'Ghost signal on repeat near {dest}. Coordinates attached.', icon: 'storm' },
+  { text: 'Free port at {dest}. No questions, no law, no rules.', icon: 'friendly' },
+  { text: '{rival} put a bounty on a ship like yours. Watch your back.', icon: 'pirate' },
 ];
 
 function generateRumor() {
-  let tmpl = RUMOR_TEMPLATES[Math.floor(Math.random() * RUMOR_TEMPLATES.length)];
-  tmpl = tmpl.replace('{dest}', randomName());
-  tmpl = tmpl.replace('{sec}', String(sector + 1));
-  tmpl = tmpl.replace('{sec2}', String(sector + Math.floor(Math.random() * 3) + 1));
-  tmpl = tmpl.replace('{treasure}', storyState.treasureName || 'a legendary treasure');
-  tmpl = tmpl.replace('{rival}', storyState.rivalName || 'A notorious pirate');
-  return { text: tmpl, reliable: Math.random() < 0.6 };
+  const tmpl = RUMOR_TEMPLATES[Math.floor(Math.random() * RUMOR_TEMPLATES.length)];
+  let text = tmpl.text;
+  text = text.replace('{dest}', randomName());
+  text = text.replace('{sec}', String(sector + 1));
+  text = text.replace('{sec2}', String(sector + Math.floor(Math.random() * 3) + 1));
+  text = text.replace('{treasure}', storyState.treasureName || 'A legendary treasure');
+  text = text.replace('{rival}', storyState.rivalName || 'A notorious pirate');
+  return { text, icon: tmpl.icon, reliable: Math.random() < 0.6 };
 }
 
 const QUEST_TYPES = [
-  { type: 'deliver_cargo', title: 'Deliver Package', desc: 'Deliver cargo to the next station.', reward: 70 },
-  { type: 'hunt_pirate', title: 'Pirate Bounty', desc: 'Take out a pirate in the next sector.', reward: 90 },
-  { type: 'find_person', title: 'Missing Person', desc: 'Find a missing crew member\'s relative.', reward: 60 },
-  { type: 'smuggle', title: 'Smuggle Goods', desc: 'Transport "merchandise" discreetly.', reward: 100 },
+  { type: 'deliver_cargo', title: 'Courier Run', desc: 'Sealed crate, no questions. Next station.', reward: 70, icon: 'station' },
+  { type: 'hunt_pirate', title: 'Pirate Bounty', desc: 'Kill a raider, collect the bounty.', reward: 90, icon: 'pirate' },
+  { type: 'find_person', title: 'Missing Person', desc: 'Someone\'s kid didn\'t come home. Find them.', reward: 60, icon: 'crew' },
+  { type: 'smuggle', title: 'Smuggle Goods', desc: '"Merchandise." Don\'t ask. Don\'t look.', reward: 100, icon: 'hazard' },
+  { type: 'salvage', title: 'Salvage Op', desc: 'Strip a wreck. Keep what you find.', reward: 75, icon: 'derelict' },
+  { type: 'escort', title: 'Escort Convoy', desc: 'Guard a merchant ship for two legs.', reward: 85, icon: 'friendly' },
+  { type: 'artifact', title: 'Alien Artifact', desc: 'Retrieve a relic. It hums when you touch it.', reward: 110, icon: 'alien' },
+  { type: 'repair_station', title: 'Station Repair', desc: 'Fix their comms array. They\'ll owe you.', reward: 65, icon: 'good' },
 ];
 
 function generateQuest() {
@@ -2752,12 +2823,17 @@ function drawStation() {
     ctx.font = isActive ? 'bold 10px monospace' : '10px monospace';
     ctx.textAlign = 'center';
     ctx.fillText(tabLabels[i], tx + (tabW - 2) / 2, 196);
-    addButton(tx, 180, tabW - 2, 24, '', () => { stationTab = tab; }, 'tab');
+    addButton(tx, 180, tabW - 2, 24, '', () => { stationTab = tab; tabSwitchTime = gameTime; }, 'tab');
   });
 
   const panelY = 210;
   const panelH = H - panelY - 50;
   drawPanel(20, panelY, W - 40, panelH);
+
+  // Tab content fade-in
+  const tabAge = gameTime - tabSwitchTime;
+  const tabAlpha = Math.min(1, tabAge / 0.2);
+  ctx.globalAlpha = tabAlpha;
 
   switch(stationTab) {
     case 'trade': drawStationTrade(panelY); break;
@@ -2766,13 +2842,16 @@ function drawStation() {
     case 'quests': drawStationQuests(panelY); break;
     case 'deals': drawStationDeals(panelY); break;
   }
+  ctx.globalAlpha = 1;
 
   // Leave button
   addButton(W - 180, H - 42, 160, 30, 'LEAVE STATION', () => {
-    stationData = null;
-    generateDestinations();
-    gameState = STATE.TRAVEL;
-    travelProgress = 0; travelDistance = 0; travelDestination = null;
+    startTransition(() => {
+      stationData = null;
+      generateDestinations();
+      gameState = STATE.TRAVEL;
+      travelProgress = 0; travelDistance = 0; travelDestination = null;
+    });
   }, 'normal');
 
   drawButtons(); checkButtons();
@@ -2958,29 +3037,64 @@ function drawStationRumors(panelY) {
   ctx.fillText('RUMORS & INTEL', W/2, panelY + 25);
 
   ctx.fillStyle = PAL.textDim; ctx.font = '9px monospace';
-  ctx.fillText('Information gathered from station patrons. Reliability varies.', W/2, panelY + 42);
+  ctx.fillText('Station chatter. Reliability varies.', W/2, panelY + 42);
+
+  const tabAge = gameTime - tabSwitchTime;
 
   stationRumors.forEach((r, i) => {
-    const ry = panelY + 65 + i * 70;
-    drawPanel(40, ry, W - 80, 58, r.reliable ? PAL.accent : PAL.warning);
+    // Fade-in stagger animation
+    const delay = i * 0.1;
+    const fadeProgress = Math.min(1, Math.max(0, (tabAge - delay) / 0.3));
+    ctx.globalAlpha = fadeProgress;
+
+    const ry = panelY + 60 + i * 68;
+    const borderColor = r.reliable ? PAL.accent : PAL.warning;
+
+    // Unreliable rumors get a subtle pulsing glow
+    if (!r.reliable && fadeProgress >= 1) {
+      const pulse = 0.3 + Math.sin(gameTime * 3 + i) * 0.15;
+      ctx.shadowColor = PAL.warning;
+      ctx.shadowBlur = 6 * pulse;
+    }
+
+    drawPanel(40, ry, W - 80, 56, borderColor);
+    ctx.shadowBlur = 0;
+
+    // Reliability color bar on left edge
+    ctx.fillStyle = borderColor;
+    ctx.globalAlpha = fadeProgress * (r.reliable ? 0.8 : (0.5 + Math.sin(gameTime * 3 + i) * 0.3));
+    ctx.fillRect(41, ry + 2, 4, 52);
+    ctx.globalAlpha = fadeProgress;
+
+    // Icon sprite
+    const iconSprite = EVENT_SPRITES[r.icon];
+    if (iconSprite) drawSprite(iconSprite, 52, ry + 12, 2);
+
+    // Rumor text
     ctx.fillStyle = PAL.text; ctx.font = '11px monospace'; ctx.textAlign = 'left';
-    const lines = wrapText(r.text, W - 120);
-    lines.forEach((l, li) => ctx.fillText(l, 55, ry + 18 + li * 14));
-    ctx.fillStyle = r.reliable ? PAL.accent : PAL.warning;
-    ctx.font = '9px monospace'; ctx.textAlign = 'right';
-    ctx.fillText(r.reliable ? '[SEEMS LEGIT]' : '[SOUNDS FISHY]', W - 55, ry + 48);
+    ctx.fillText(r.text, 88, ry + 25);
+
+    // Reliability tag
+    ctx.fillStyle = borderColor;
+    ctx.font = 'bold 9px monospace'; ctx.textAlign = 'right';
+    ctx.fillText(r.reliable ? 'RELIABLE' : 'DUBIOUS', W - 55, ry + 46);
+
+    ctx.globalAlpha = 1;
   });
 
   // Story info
-  const sy = panelY + 65 + stationRumors.length * 70 + 15;
+  const sy = panelY + 60 + stationRumors.length * 68 + 15;
+  const storyFade = Math.min(1, Math.max(0, (tabAge - stationRumors.length * 0.1 - 0.2) / 0.3));
+  ctx.globalAlpha = storyFade;
   if (storyState.rivalName) {
-    ctx.fillStyle = PAL.pirate; ctx.font = '10px monospace'; ctx.textAlign = 'left';
-    ctx.fillText('WANTED: ' + storyState.rivalName + ' - Last seen Sector ' + (sector + Math.floor(Math.random()*3)), 50, sy);
+    ctx.fillStyle = PAL.pirate; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'left';
+    ctx.fillText('WANTED: ' + storyState.rivalName + ' — Last seen Sector ' + (sector + Math.floor(Math.random()*3)), 50, sy);
   }
   if (storyState.treasureName) {
-    ctx.fillStyle = PAL.gold; ctx.font = '10px monospace';
-    ctx.fillText('LEGEND: ' + storyState.treasureName + ' - rumored to exist', 50, sy + 16);
+    ctx.fillStyle = PAL.gold; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'left';
+    ctx.fillText('LEGEND: ' + storyState.treasureName + ' — rumored location unknown', 50, sy + 16);
   }
+  ctx.globalAlpha = 1;
 }
 
 function drawStationQuests(panelY) {
@@ -2993,20 +3107,35 @@ function drawStationQuests(panelY) {
     return;
   }
 
+  const tabAge = gameTime - tabSwitchTime;
   stationQuests.forEach((q, i) => {
-    const qy = panelY + 50 + i * 90;
-    drawPanel(40, qy, W - 80, 78);
+    // Slide-in animation: stagger by index
+    const delay = i * 0.12;
+    const slideProgress = Math.min(1, Math.max(0, (tabAge - delay) / 0.25));
+    const slideX = (1 - slideProgress) * -60;
+    const slideAlpha = slideProgress;
+    ctx.globalAlpha = slideAlpha;
+
+    const qy = panelY + 50 + i * 82;
+    drawPanel(40 + slideX, qy, W - 80, 70);
+
+    // Quest icon
+    const iconSprite = EVENT_SPRITES[q.icon];
+    if (iconSprite) drawSprite(iconSprite, 48 + slideX, qy + 12, 2.5);
+
     ctx.fillStyle = PAL.textBright; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'left';
-    ctx.fillText(q.title, 55, qy + 20);
+    ctx.fillText(q.title, 95 + slideX, qy + 18);
     ctx.fillStyle = PAL.text; ctx.font = '10px monospace';
-    ctx.fillText(q.desc, 55, qy + 38);
-    ctx.fillStyle = PAL.gold;
-    ctx.fillText('Reward: ' + q.reward + ' credits', 55, qy + 54);
+    ctx.fillText(q.desc, 95 + slideX, qy + 34);
+    ctx.fillStyle = PAL.gold; ctx.font = '10px monospace';
+    ctx.fillText(q.reward + ' CR', 95 + slideX, qy + 50);
     ctx.fillStyle = PAL.textDim;
-    ctx.fillText('Deadline: ' + q.turnsLeft + ' legs', 300, qy + 54);
+    ctx.fillText(q.turnsLeft + ' legs', 200 + slideX, qy + 50);
+
+    ctx.globalAlpha = 1;
 
     if (!q.accepted) {
-      addButton(W - 190, qy + 15, 120, 28, 'ACCEPT', () => {
+      addButton(W - 190, qy + 12, 110, 26, 'ACCEPT', () => {
         q.accepted = true;
         activeQuests.push(q);
         if (q.type === 'smuggle') {
@@ -3014,22 +3143,22 @@ function drawStationQuests(panelY) {
           addConsequence('contraband', q.turnsLeft, { credits: -30 }, 'Smuggled goods discovered at checkpoint!');
         }
         Audio.play('good');
-        addLog('Accepted mission: ' + q.title, 'info');
+        addLog('Accepted: ' + q.title, 'info');
       }, 'good');
     } else {
       ctx.fillStyle = PAL.accent; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'right';
-      ctx.fillText('[ACCEPTED]', W - 60, qy + 32);
+      ctx.fillText('ACCEPTED', W - 60, qy + 30);
     }
   });
 
-  // Active quests
+  // Active quests — compact
   if (activeQuests.length > 0) {
-    const aqy = panelY + 50 + stationQuests.length * 90 + 15;
-    ctx.fillStyle = PAL.accent; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'left';
-    ctx.fillText('ACTIVE MISSIONS:', 50, aqy);
+    const aqy = panelY + 50 + stationQuests.length * 82 + 10;
+    ctx.fillStyle = PAL.accent; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'left';
+    ctx.fillText('ACTIVE:', 50, aqy);
     activeQuests.forEach((q, i) => {
-      ctx.fillStyle = PAL.text; ctx.font = '10px monospace';
-      ctx.fillText('- ' + q.title + ' (' + q.turnsLeft + ' legs remaining) - ' + q.reward + ' cr', 50, aqy + 16 + i * 14);
+      ctx.fillStyle = PAL.text; ctx.font = '9px monospace';
+      ctx.fillText(q.title + '  ' + q.turnsLeft + ' legs  ' + q.reward + ' cr', 110, aqy + i * 13);
     });
   }
 }
@@ -3038,17 +3167,44 @@ function drawStationDeals(panelY) {
   ctx.fillStyle = PAL.warning; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center';
   ctx.fillText('SHADY DEALS', W/2, panelY + 25);
   ctx.fillStyle = PAL.textDim; ctx.font = '9px monospace';
-  ctx.fillText('High risk. High reward. No guarantees. No refunds.', W/2, panelY + 42);
+  ctx.fillText('High risk. High reward. No refunds.', W/2, panelY + 42);
+
+  const tabAge = gameTime - tabSwitchTime;
 
   stationDeals.forEach((d, i) => {
+    // Fade-in stagger
+    const delay = i * 0.12;
+    const fadeProgress = Math.min(1, Math.max(0, (tabAge - delay) / 0.25));
+    ctx.globalAlpha = fadeProgress;
+
     const dy = panelY + 60 + i * 100;
+
+    // Danger pulse border glow
+    const pulse = 0.4 + Math.sin(gameTime * 2.5 + i * 1.5) * 0.3;
+    ctx.shadowColor = PAL.warning;
+    ctx.shadowBlur = 8 * pulse;
+
     drawPanel(40, dy, W - 80, 88, PAL.warning);
+    ctx.shadowBlur = 0;
+
+    // Warning stripe on left edge
+    ctx.fillStyle = PAL.danger;
+    ctx.globalAlpha = fadeProgress * (0.5 + Math.sin(gameTime * 2 + i) * 0.3);
+    ctx.fillRect(41, dy + 2, 4, 84);
+    ctx.globalAlpha = fadeProgress;
+
+    // Hazard icon
+    const hazIcon = EVENT_SPRITES['hazard'];
+    if (hazIcon) drawSprite(hazIcon, 50, dy + 10, 2);
+
     ctx.fillStyle = PAL.warning; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'left';
-    ctx.fillText(d.title, 55, dy + 20);
+    ctx.fillText(d.title, 85, dy + 20);
     ctx.fillStyle = PAL.text; ctx.font = '10px monospace';
-    ctx.fillText(d.desc, 55, dy + 38);
-    ctx.fillStyle = PAL.textDim;
-    ctx.fillText('Consequence arrives in ~' + d.turns + ' travel legs', 55, dy + 55);
+    ctx.fillText(d.desc, 85, dy + 38);
+    ctx.fillStyle = PAL.textDim; ctx.font = '9px monospace';
+    ctx.fillText('Consequence in ~' + d.turns + ' legs', 85, dy + 55);
+
+    ctx.globalAlpha = 1;
 
     const canAfford = res.credits >= d.cost;
     addButton(W - 190, dy + 18, 120, 28, d.cost > 0 ? 'BUY (-' + d.cost + ' CR)' : 'ACCEPT DEAL', () => {
@@ -3059,7 +3215,6 @@ function drawStationDeals(panelY) {
         addConsequence(d.consequence, d.turns + Math.floor(Math.random() * 2), d.type === 'experimental_mod' ? { hull: -15, fuel: -10 } : null, d.cText);
         Audio.play('good');
         addLog('Accepted shady deal: ' + d.title, 'warning');
-        // Remove from available
         stationDeals.splice(i, 1);
       } else Audio.play('bad');
     }, canAfford ? 'danger' : 'normal');
@@ -3070,15 +3225,27 @@ function drawStationDeals(panelY) {
     ctx.fillText('No deals available. Check back next station.', W/2, panelY + 100);
   }
 
-  // Pending consequences warning
+  // Pending consequences warning with flashing icon
   if (pendingConsequences.length > 0) {
     const cy = panelY + 60 + stationDeals.length * 100 + 20;
-    ctx.fillStyle = PAL.danger; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'left';
-    ctx.fillText('PENDING CONSEQUENCES:', 50, cy);
+    const warnFlash = 0.6 + Math.sin(gameTime * 4) * 0.4;
+
+    // Flashing warning triangle
+    ctx.fillStyle = PAL.danger;
+    ctx.globalAlpha = warnFlash;
+    ctx.font = 'bold 12px monospace'; ctx.textAlign = 'left';
+    ctx.fillText('\u26A0', 42, cy + 1);
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = PAL.danger; ctx.font = 'bold 10px monospace';
+    ctx.fillText('PENDING CONSEQUENCES:', 58, cy);
     pendingConsequences.forEach((c, i) => {
+      const cFade = 0.7 + Math.sin(gameTime * 3 + i * 0.5) * 0.3;
       ctx.fillStyle = PAL.warning; ctx.font = '9px monospace';
-      ctx.fillText('- ' + c.type.replace(/_/g, ' ').toUpperCase() + ' (in ~' + c.turnsLeft + ' legs)', 50, cy + 16 + i * 14);
+      ctx.globalAlpha = cFade;
+      ctx.fillText('\u2022 ' + c.type.replace(/_/g, ' ').toUpperCase() + ' — ~' + c.turnsLeft + ' legs', 58, cy + 16 + i * 14);
     });
+    ctx.globalAlpha = 1;
   }
 }
 
@@ -3575,12 +3742,14 @@ function drawEvent() {
     resultLines.forEach((line, i) => ctx.fillText(line, px+pw/2, ry+i*16));
 
     addButton(px+pw/2-80, py+ph-55, 160, 36, 'CONTINUE', () => {
-      currentEvent = null; eventResult = null;
-      checkDeath();
-      if (gameState !== STATE.GAMEOVER && gameState !== STATE.DEATH_ANIM) {
-        if (travelProgress < travelDistance) gameState = STATE.TRAVEL;
-        else arriveAtDestination();
-      }
+      startTransition(() => {
+        currentEvent = null; eventResult = null;
+        checkDeath();
+        if (gameState !== STATE.GAMEOVER && gameState !== STATE.DEATH_ANIM) {
+          if (travelProgress < travelDistance) gameState = STATE.TRAVEL;
+          else arriveAtDestination();
+        }
+      });
     }, 'good');
   } else {
     const choiceY = py + 130 + lines.length * 16 + 15;
@@ -4928,6 +5097,7 @@ function gameLoop(time) {
 
     // Update animated background elements (comets, etc.)
     updateEnhancedBackground(dt);
+    updateTransition(dt);
 
     // Ambient sound timing
     if (Audio.initialized && gameTime - lastAmbienceTime > 4 && gameState !== STATE.MENU && gameState !== STATE.DEATH_ANIM) {
@@ -4996,6 +5166,9 @@ function gameLoop(time) {
             gameState = STATE.MENU;
         }
     }
+
+    // Screen transition overlay (must be last draw call)
+    drawTransition();
 
     mouse.clicked = false;
 }
